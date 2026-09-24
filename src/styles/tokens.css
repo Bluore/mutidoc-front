@@ -1,0 +1,110 @@
+/*
+ * 全局设计令牌（Design Tokens）
+ * ---------------------------------------------------------------
+ * 这是唯一被允许「跨模块共享样式」的通道。
+ * 模块只应通过 var(--md-*) 消费令牌，禁止在组件里写死颜色 / 间距 / 字号。
+ * 命名统一使用 md- 前缀，避免与第三方库或宿主页面冲突。
+ */
+:root {
+  color-scheme: light;
+
+  /* 品牌色 */
+  --md-color-primary: #3b82f6;
+  --md-color-primary-hover: #2563eb;
+  --md-color-primary-active: #1d4ed8;
+  --md-color-primary-soft: rgba(59, 130, 246, 0.12);
+
+  /* 语义色 */
+  --md-color-success: #10b981;
+  --md-color-warning: #f59e0b;
+  --md-color-danger: #ef4444;
+  --md-color-danger-hover: #dc2626;
+  --md-color-danger-soft: rgba(239, 68, 68, 0.12);
+
+  /* 文本 */
+  --md-color-text: #1f2937;
+  --md-color-text-secondary: #6b7280;
+  --md-color-text-disabled: #9ca3af;
+  --md-color-text-inverse: #ffffff;
+
+  /* 背景与边框 */
+  --md-color-bg: #f3f4f6;
+  --md-color-surface: #ffffff;
+  --md-color-surface-hover: #f9fafb;
+  --md-color-border: #e5e7eb;
+  --md-color-border-strong: #d1d5db;
+
+  /* 间距（8pt 体系） */
+  --md-space-1: 4px;
+  --md-space-2: 8px;
+  --md-space-3: 12px;
+  --md-space-4: 16px;
+  --md-space-5: 20px;
+  --md-space-6: 24px;
+  --md-space-8: 32px;
+  --md-space-10: 40px;
+
+  /* 圆角 */
+  --md-radius-sm: 4px;
+  --md-radius-md: 8px;
+  --md-radius-lg: 12px;
+  --md-radius-full: 9999px;
+
+  /* 阴影 */
+  --md-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --md-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+
+  /* 字体 */
+  --md-font-sans: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --md-font-mono: ui-monospace, Consolas, 'Courier New', monospace;
+  --md-font-size-xs: 12px;
+  --md-font-size-sm: 13px;
+  --md-font-size-md: 14px;
+  --md-font-size-lg: 16px;
+  --md-font-size-xl: 20px;
+  --md-font-size-2xl: 26px;
+  --md-line-height: 1.6;
+
+  /* 层级（统一管理，避免各模块随意写 z-index） */
+  --md-z-header: 100;
+  --md-z-dropdown: 200;
+  --md-z-modal: 1000;
+  --md-z-toast: 1100;
+
+  /* 动效 */
+  --md-transition-fast: 0.15s ease;
+  --md-transition-base: 0.25s ease;
+
+  /* 布局 */
+  --md-layout-max-width: 1180px;
+  --md-header-height: 56px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --md-color-primary: #60a5fa;
+    --md-color-primary-hover: #93c5fd;
+    --md-color-primary-active: #bfdbfe;
+    --md-color-primary-soft: rgba(96, 165, 250, 0.16);
+
+    --md-color-danger: #f87171;
+    --md-color-danger-hover: #fca5a5;
+    --md-color-danger-soft: rgba(248, 113, 113, 0.16);
+
+    --md-color-text: #e5e7eb;
+    --md-color-text-secondary: #9ca3af;
+    --md-color-text-disabled: #6b7280;
+    --md-color-text-inverse: #111827;
+
+    --md-color-bg: #111827;
+    --md-color-surface: #1f2937;
+    --md-color-surface-hover: #273244;
+    --md-color-border: #374151;
+    --md-color-border-strong: #4b5563;
+
+    --md-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --md-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+}

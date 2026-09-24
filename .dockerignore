@@ -1,0 +1,23 @@
+# 依赖与构建产物（构建阶段会在容器内重新安装/生成）
+node_modules
+dist
+dist-ssr
+
+# 版本控制与编辑器
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+*.local
+
+# 日志
+*.log
+logs
+
+# 无关目录 / 文件
+my-app
+README.md
+Dockerfile*
+docker-compose*
+.dockerignore

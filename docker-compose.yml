@@ -1,0 +1,26 @@
+# Mutidoc 前端服务
+# 与 Muti-Document-Server 共用已存在的外部网络 mutidoc-net，
+# 由已部署的 nginx-gateway 统一入口转发。
+services:
+  mutidoc-front:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # 构建期变量（VITE_ 变量在 build 时注入，见 .env.production）
+        PNPM_VERSION: 11.1.1
+    image: mutidoc-front:latest
+    container_name: mutidoc-front
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    # 对外暴露端口（容器内为 80）；网关走内部网络访问时此端口可按需删除
+    ports:
+      - "8890:80"
+    networks:
+      - mutidoc-net
+
+# 复用已存在的外部网络（由 Server 侧 / docker network create 创建），不要在此重复声明 driver/ipam
+networks:
+  mutidoc-net:
+    external: true
