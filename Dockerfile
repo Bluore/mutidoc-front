@@ -1,40 +1,35 @@
 # syntax=docker/dockerfile:1
 
 # ============================================================
-# 阶段一：使用 Vite 构建静态产物
+# 开发镜像：运行 Vite dev server
+# 源码由 docker-compose.yml 以卷挂载进容器，实现改动即时热重载（HMR）。
+# 生产构建请使用同目录下的 Dockerfile.prod（多阶段 → nginx 托管 dist）。
 # ============================================================
-FROM node:22-alpine AS builder
+FROM node:22-alpine
 
 WORKDIR /app
 
+ENV TZ=Asia/Shanghai
+
 # 固定 pnpm 版本，保证与 pnpm-lock.yaml 一致
 ARG PNPM_VERSION=11.1.1
-RUN npm install -g pnpm@${PNPM_VERSION}
+# npm 源：默认走国内镜像，规避拉取超时（Docker 构建常见 exit code 146）
+# 需要时可覆盖：docker build --build-arg NPM_REGISTRY=https://registry.npmjs.org ...
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+
+# 写入用户级 .npmrc，npm 与 pnpm 都会读取，统一使用镜像源
+RUN printf 'registry=%s\n' "${NPM_REGISTRY}" > ~/.npmrc \
+  && npm install -g pnpm@${PNPM_VERSION}
 
 # 先只拷贝依赖清单，充分利用 Docker 层缓存
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# 再拷贝源码并构建（build 脚本内含 vue-tsc 类型检查 + vite build）
+# 源码在运行期由 compose 卷挂载覆盖；此处仅作兜底，保证镜像可独立启动
 COPY . .
-RUN pnpm build
 
-# ============================================================
-# 阶段二：nginx 托管静态文件
-# ============================================================
-FROM nginx:1.27-alpine AS runner
-
-ENV TZ=Asia/Shanghai
-
-# 站点配置：SPA 回退 + 静态资源缓存 + /api 转发到已有网关
-COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
-
-# 仅拷贝构建产物
-COPY --from=builder /app/dist /usr/share/nginx/html
-
+# Vite dev server 端口
 EXPOSE 80
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null http://127.0.0.1/ || exit 1
-
-CMD ["nginx", "-g", "daemon off;"]
+# 监听 0.0.0.0 才能被宿主机/其他容器访问
+CMD ["pnpm", "dev", "--host", "0.0.0.0", "--port", "80"]

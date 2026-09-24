@@ -18,6 +18,6 @@ logs
 # 无关目录 / 文件
 my-app
 README.md
-Dockerfile*
+Dockerfile
 docker-compose*
 .dockerignore

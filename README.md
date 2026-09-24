@@ -10,6 +10,16 @@ Vite + Vue 3 + TypeScript 的模块化前端基座。
 - **Vue Router 5**（路由，模块路由自动收集）
 - **Pinia**（状态管理）
 - **Axios**（统一请求层）
+- **@pixelium/web-vue**（像素风组件库）
+
+## 功能模块
+
+| 模块 | 页面 | 说明 |
+| --- | --- | --- |
+| `auth` | `/login`、`/register` | 注册 / 登录 / 邮箱验证码，落地 `md_token` |
+| `document` | `/documents`、`/documents/:id` | 工作台（文档列表 / 新建 / 删除）与文档详情 |
+| `user` | `/profile` | 个人中心（查看信息、修改昵称 / 头像） |
+| `example` | `/examples` | 参考模板，新模块请复制它 |
 
 ## 快速开始
 
@@ -20,7 +30,8 @@ pnpm build      # 类型检查 + 构建
 pnpm preview    # 预览构建产物
 ```
 
-默认启用 mock 数据（`.env` 中 `VITE_USE_MOCK=true`），无需后端即可运行示例模块。
+默认对接真实后端（`.env` 中 `VITE_USE_MOCK=false`，开发环境通过 `DEV_PROXY_TARGET` 代理到网关，
+默认 `http://localhost:8888`）。如需脱离后端运行，把 `VITE_USE_MOCK` 改为 `true` 即可使用各模块内置 mock。
 
 ## 目录结构
 
@@ -30,8 +41,11 @@ src/
 ├── components/       # 跨模块复用的基础组件（BaseButton 等）
 ├── composables/      # 跨模块复用的组合式函数
 ├── config/           # 环境配置（env.ts 是读取 import.meta.env 的唯一出口）
-├── layouts/          # 页面布局骨架（DefaultLayout）
+├── layouts/          # 页面布局骨架（DefaultLayout：顶部导航 + 用户菜单）
 ├── modules/          # ★ 业务模块（新增功能的主要场所）
+│   ├── auth/         #   注册 / 登录 / 验证码
+│   ├── document/     #   工作台（文档列表）与文档详情
+│   ├── user/         #   个人中心
 │   └── example/      #   示例/参考模块，详见其 README
 ├── router/           # 路由实例 + 模块路由自动收集
 ├── stores/           # Pinia 实例与全局 store
@@ -65,3 +79,9 @@ src/
 ## 配置
 
 复制 `.env.example` 为对应环境文件并按需修改。自定义变量必须以 `VITE_` 开头。
+
+| 变量 | 说明 |
+| --- | --- |
+| `VITE_API_BASE_URL` | 接口基础路径（默认 `/api`） |
+| `VITE_USE_MOCK` | 是否使用内置 mock；对接真实后端时为 `false` |
+| `DEV_PROXY_TARGET` | 仅 `pnpm dev` 使用，`/api` 代理目标（默认 `http://localhost:8888`） |

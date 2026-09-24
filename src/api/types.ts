@@ -15,9 +15,13 @@ export interface PageResult<T> {
 /**
  * 后端统一响应信封。
  * request() 会自动校验 code 并解包 data，业务层拿到的就是 T。
+ *
+ * 注意：后端实际返回 `msg`（见 docs/README.md），这里同时兼容 `message`，
+ * 避免业务错误时拿不到中文提示。
  */
 export interface ApiResponse<T> {
   code: number
-  message: string
+  message?: string
+  msg?: string
   data: T
 }

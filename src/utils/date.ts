@@ -9,3 +9,9 @@ export function formatDateTime(input: string | number | Date): string {
     `${pad(date.getHours())}:${pad(date.getMinutes())}`,
   ].join(' ')
 }
+
+/** 后端返回的是秒级 Unix 时间戳，转成毫秒后再格式化 */
+export function formatUnixSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '-'
+  return formatDateTime(seconds * 1000)
+}

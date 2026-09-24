@@ -54,8 +54,8 @@
   --md-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
   --md-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
 
-  /* 字体 */
-  --md-font-sans: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* 字体：优先使用像素字体（由 @pixelium/web-vue/dist/font.css 提供） */
+  --md-font-sans: 'Fusion Pixel Zh_hans', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --md-font-mono: ui-monospace, Consolas, 'Courier New', monospace;
   --md-font-size-xs: 12px;
   --md-font-size-sm: 13px;

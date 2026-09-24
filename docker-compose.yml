@@ -1,23 +1,52 @@
-# Mutidoc 前端服务
-# 与 Muti-Document-Server 共用已存在的外部网络 mutidoc-net，
-# 由已部署的 nginx-gateway 统一入口转发。
+# Mutidoc 前端开发环境（Vite dev server + HMR 热重载）
+#
+# 用法（在项目根目录）：
+#   docker compose -f docker-compose.yml up          # 前台启动，Ctrl+C 停止
+#   docker compose -f docker-compose.yml up -d       # 后台启动
+#   docker compose -f docker-compose.yml logs -f     # 查看日志
+#   docker compose -f docker-compose.yml down        # 停止并删除容器
+#
+# 源码目录以卷挂载进容器，修改文件后浏览器自动热更新，无需重新 build 镜像。
+# 仅首次或依赖（package.json / pnpm-lock.yaml）变更时需要 rebuild：
+#   docker compose -f docker-compose.yml up -d --build
+#
+# 容器加入 Server 侧已存在的外部网络 mutidoc-net（服务名即网络主机名 mutidoc-front）。
+# 若该网络尚未创建，先执行：
+#   docker network create --driver bridge --subnet 172.20.0.0/16 mutidoc-net
 services:
   mutidoc-front:
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        # 构建期变量（VITE_ 变量在 build 时注入，见 .env.production）
         PNPM_VERSION: 11.1.1
-    image: mutidoc-front:latest
+        # npm 源，默认国内镜像；海外/内网源可通过环境变量覆盖
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+    image: mutidoc-front:dev
     container_name: mutidoc-front
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
-    # 对外暴露端口（容器内为 80）；网关走内部网络访问时此端口可按需删除
+      # 通过绑定额挂载时，轮询才能可靠感知宿主机文件变化（配合 vite.config.ts 的 server.watch）
+      - DEV_USE_POLLING=true
+      # /api 的代理目标：真实网关（nginx-gateway）映射在宿主机 8888。
+      # Windows/macOS Docker Desktop 可直接访问 host.docker.internal；
+      # 若后端在 mutidoc-net 网关内，也可改为 http://nginx-gateway:8081
+      - DEV_PROXY_TARGET=${DEV_PROXY_TARGET:-http://host.docker.internal:8888}
+    # Linux 上 host.docker.internal 默认不解析，显式映射到宿主机网关；
+    # Windows/macOS 的 Docker Desktop 已内置该记录，重复声明无副作用。
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8890:80"
+    volumes:
+      # 源码热重载：宿主机项目目录挂载到容器内
+      - .:/app
+      # 匿名卷遮蔽宿主机的 node_modules，使用镜像内已安装的依赖，避免平台不一致
+      - /app/node_modules
     networks:
+      # 加入 Server 侧统一网关网络：服务名即网络主机名 mutidoc-front，
+      # 网关据此 proxy_pass http://mutidoc-front:80（名称务必保留，勿改为 dev）。
       - mutidoc-net
 
 # 复用已存在的外部网络（由 Server 侧 / docker network create 创建），不要在此重复声明 driver/ipam

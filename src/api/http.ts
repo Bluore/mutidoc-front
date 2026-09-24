@@ -39,10 +39,15 @@ http.interceptors.response.use(
     const status = error.response?.status
     const body = error.response?.data
 
-    // 401 占位：可在此处清理凭证并跳转登录
-    // if (status === 401) { localStorage.removeItem(TOKEN_STORAGE_KEY) }
+    // 鉴权失败：清理失效凭证并回到登录页（避免继续带着坏 token 请求）
+    if (status === 401) {
+      localStorage.removeItem(TOKEN_STORAGE_KEY)
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.assign('/login')
+      }
+    }
 
-    const message = body?.message || error.message || '网络请求失败'
+    const message = body?.message || body?.msg || error.message || '网络请求失败'
     return Promise.reject(new ApiError(message, body?.code ?? -1, status))
   },
 )
@@ -59,7 +64,7 @@ export async function request<T>(config: AxiosRequestConfig): Promise<T> {
   // 兼容 204 No Content 等无响应体的情况
   if (body == null) return undefined as T
   if (body.code !== 0) {
-    throw new ApiError(body.message || '业务处理失败', body.code)
+    throw new ApiError(body.message || body.msg || '业务处理失败', body.code)
   }
   return body.data
 }
