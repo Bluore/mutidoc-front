@@ -34,3 +34,14 @@ export const COLLABORATION_FILE_EXTENSION = '.txt'
 
 /** 协作编辑活动日志最多保留的条数 */
 export const COLLABORATION_LOG_LIMIT = 50
+
+/**
+ * 本地编辑的批量上送间隔（毫秒）。
+ *
+ * 逐键上送会产生大量网络往返与 OT 变换，因此首次输入后开启一个固定 500ms 的窗口，
+ * 窗口内的所有输入合并成一次发送；窗口结束若仍有新输入，再开启下一个窗口。
+ */
+export const COLLABORATION_EDIT_INTERVAL_MS = 500
+
+/** 光标位置上报的最小间隔（毫秒）：光标比正文频繁，但仍需节流。 */
+export const COLLABORATION_CURSOR_THROTTLE_MS = 200

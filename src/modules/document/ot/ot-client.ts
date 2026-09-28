@@ -9,19 +9,24 @@
  *    `ClientInitMessage`. 当前后端处于开发阶段，鉴权 token 随首帧下发，
  *    因此这里的首帧为 `{"token": "..."}`（由 `stores/collaboration.ts` 发送），
  *    身份改由服务端 init 响应里的 `user_id` 回传；
- *  - later frames are `ClientMessage` = `{"edit": {"reversion": n, "operator": [...]}}`,
- *    where `operator` is the **bare atom array** `protocol.Operator.UnmarshalJSON`
- *    expects (an insert is a string, a retain a positive number, a delete a
- *    negative number). `reversion` is the revision the atoms are **based on** -
- *    the number of operations the client has already applied: `handlerMessage`
- *    copies it onto the operator and `Ot.applyEdit` then transforms the operator
- *    against `o.Ops[reversion:]`. Sending the *landing* revision (base + 1)
- *    instead makes the server skip exactly one history operation, so the base
- *    revision is what goes on the wire;
- *  - the server answers with `ServerMessage`, which carries exactly one of
- *    `init` or `edit`:
- *      * `init`: `{reversion, content, user_id, users}` - the whole document at
- *        the moment the socket joined;
+ *  - later frames are `ClientMessage`, which may carry any combination of:
+ *      * `edit`: `{"reversion": n, "operator": [...]}`, where `operator` is the
+ *        **bare atom array** `protocol.Operator.UnmarshalJSON` expects (an insert
+ *        is a string, a retain a positive number, a delete a negative number).
+ *        `reversion` is the revision the atoms are **based on** - the number of
+ *        operations the client has already applied: `handlerMessage` copies it
+ *        onto the operator and `Ot.applyEdit` then transforms the operator
+ *        against `o.Ops[reversion:]`. Sending the *landing* revision (base + 1)
+ *        instead makes the server skip exactly one history operation, so the base
+ *        revision is what goes on the wire;
+ *      * `cursor`: `{user_id, reversion, anchor, head}` - the caret / selection,
+ *        with all offsets in UTF-8 bytes;
+ *      * `set_title`: `{"title": "..."}` - a new document title. It has no
+ *        revision and does not take part in OT;
+ *  - the server answers with `ServerMessage`; its five fields always exist and
+ *    the absent ones are `null`:
+ *      * `init`: `{reversion, title, content, user_id, users, cursor,
+ *        cursor_color}` - the whole document at the moment the socket joined;
  *      * `edit`: `{reversion, operator: [op, op, ...]}` - the operations this
  *        socket has not seen yet, oldest first, where `reversion` is the revision
  *        the last of them produced. Every element is a *whole* operator
@@ -30,7 +35,10 @@
  *        stamped by `handlerMessage` from the socket the edit arrived on: it is
  *        how a client recognizes its own operation in the broadcast. Its
  *        `reversion` field is the base the author claimed, which `Transform`
- *        copies along - an author hint, not the operator's position.
+ *        copies along - an author hint, not the operator's position;
+ *      * `cursor`: a batch of caret updates; `user`: join / quit notifications;
+ *        `set_title`: `{user_id, title}` - broadcast to every connection after a
+ *        title change.
  *
  * LOCAL STATE - the task's pseudocode, name by name
  *
@@ -128,6 +136,7 @@ import {
     insert,
     encodeText,
     utf8Length,
+    transformOffset,
     type Insert,
     type Delete,
     type OperatorAtomic,
@@ -169,9 +178,45 @@ export interface ClientEditMsg {
     operator: OperatorOpJson[];
 }
 
-/** `protocol.ClientMessage`; a client frame carries at most one edit. */
+/**
+ * `protocol.ClientSetTitleMsg`; the new document title one client asks for.
+ *
+ * The title has no revision and does not take part in OT: the server simply
+ * overwrites it and broadcasts the result (see `ServerSetTitleMsg`). An empty
+ * string is a valid title.
+ */
+export interface ClientSetTitleMsg {
+    title: string;
+}
+
+/** One endpoint of a cursor / selection, as `protocol.Position`. */
+export interface CursorPosition {
+    /** UTF-8 byte offset, the same unit as an operator atom. */
+    offset: number;
+    /** `>= 0` sticks to the right of an insertion, `< 0` to the left. */
+    assoc: number;
+}
+
+/** `protocol.Cursor`; the caret or selection one client reports. */
+export interface Cursor {
+    /** Filled in by the server with the connection's user; may be sent empty. */
+    user_id: string;
+    /** Revision the offsets are based on. */
+    reversion: number;
+    /** Selection start; equal to `head` for a plain caret. */
+    anchor: CursorPosition;
+    /** Selection end. */
+    head: CursorPosition;
+}
+
+/**
+ * `protocol.ClientMessage`; a client frame may carry an edit, a cursor, a title
+ * change, or any combination of them. Every field is omitted when empty.
+ */
 export interface ClientMessage {
-    edit?: ClientEditMsg;
+    edit?: ClientEditMsg | null;
+    cursor?: Cursor | null;
+    set_title?: ClientSetTitleMsg | null;
 }
 
 /** An operator as the server writes it: `ops`, `reversion` and the author `id`. */
@@ -188,18 +233,52 @@ export interface ServerEditMsg {
     operator: ServerOperatorJson[] | null;
 }
 
+/** One online user as the server describes it (`protocol.User`). */
+export interface ServerUser {
+    id: string;
+    name: string;
+    /** Palette color the server assigned to this user's caret. */
+    cursor_color: string;
+}
+
+/** `protocol.ServerUserMsg`; join / quit notifications, one side is null. */
+export interface ServerUserMsg {
+    join_users: ServerUser[] | null;
+    quit_users: ServerUser[] | null;
+}
+
+/** `protocol.ServerSetTitleMsg`; broadcast to every connection after a change. */
+export interface ServerSetTitleMsg {
+    /** `user_id` of the client that made the change. */
+    user_id: string;
+    /** Title after the change. */
+    title: string;
+}
+
 /** `protocol.ServerInitMsg`; the document as it looked when the socket joined. */
 export interface ServerInitMsg {
     reversion: number;
+    /** Current document title; empty string when never set. */
+    title: string;
     content: string;
     user_id: string;
-    users: unknown[] | null;
+    users: ServerUser[] | null;
+    /** Caret snapshot of every online user, self included. */
+    cursor: Cursor[] | null;
+    /** Palette color the server assigned to this connection. */
+    cursor_color: string;
 }
 
-/** `protocol.ServerMessage`; `edit` and `init` are mutually exclusive. */
+/**
+ * `protocol.ServerMessage`; the five fields always exist, the absent ones are
+ * `null`. `init` is only delivered once, right after the token frame.
+ */
 export interface ServerMessage {
-    edit?: ServerEditMsg | null;
     init?: ServerInitMsg | null;
+    edit?: ServerEditMsg | null;
+    cursor?: Cursor[] | null;
+    user?: ServerUserMsg | null;
+    set_title?: ServerSetTitleMsg | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -556,6 +635,38 @@ export class OtClient {
         return this.sendOperator;
     }
 
+    /**
+     * @returns whether a local operator is still unconfirmed: one waiting to go
+     *   out or one whose echo has not come back. While this is true the local
+     *   text is ahead of the server document, so a cursor may not be reported in
+     *   server coordinates yet.
+     */
+    hasPending(): boolean {
+        return this.sendOperator !== null || this.waitOperator !== null;
+    }
+
+    /**
+     * Map a position valid on the server document into local text coordinates.
+     *
+     * The held operators are replayed in the order they will reach the server
+     * (`send` then `wait`), exactly like `applyText`, so a remote caret stays on
+     * the same character while the local client has edits in flight.
+     *
+     * @param offset UTF-8 byte offset on `baseText`
+     * @param assoc insertion ownership, as on the wire
+     * @returns the byte offset in `applyText`
+     */
+    mapServerOffsetToLocal(offset: number, assoc: number): number {
+        let current = offset;
+        if (this.sendOperator) {
+            current = transformOffset(this.sendOperator, current, assoc);
+        }
+        if (this.waitOperator) {
+            current = transformOffset(this.waitOperator, current, assoc);
+        }
+        return current;
+    }
+
     /** @returns a snapshot of everything a log line may want to print. */
     getState(): ClientState {
         return {
@@ -756,7 +867,7 @@ export class OtClient {
             return ok(
                 line("receive", label, `reversion=${message.init.reversion}`, `queued=${this.queue.length}`),
                 line("  content", JSON.stringify(message.init.content)),
-                line("  hint   ", 'not applied yet, press "receive operator" to consume'),
+                line("  hint   ", "queued, consumed immediately by the store"),
             );
         }
 
@@ -778,11 +889,35 @@ export class OtClient {
             for (const [index, raw] of ops.entries()) {
                 lines.push(line(`  op[${index}]`, formatOperator(Operator.fromJSON(raw))));
             }
-            lines.push(line("  hint   ", 'not applied yet, press "receive operator" to consume'));
+            lines.push(line("  hint   ", "queued, consumed immediately by the store"));
             return ok(...lines);
         }
 
-        return fail(line("receive", "ignored: frame has neither init nor edit"));
+        // Cursor / user / title frames carry no OT state, so nothing is queued:
+        // the store applies them to its presentation state right away. A cursor
+        // update is too frequent to be worth a log line; a join / quit / title
+        // change is not.
+        if (message.user) {
+            const join = message.user.join_users?.length ?? 0;
+            const quit = message.user.quit_users?.length ?? 0;
+            return ok(line("receive", "user", `join=${join}`, `quit=${quit}`, "applied immediately"));
+        }
+        if (message.set_title) {
+            return ok(
+                line(
+                    "receive",
+                    "set_title",
+                    `title=${JSON.stringify(message.set_title.title)}`,
+                    `by=${shortId(message.set_title.user_id)}`,
+                    "applied immediately",
+                ),
+            );
+        }
+        if (message.cursor) {
+            return ok();
+        }
+
+        return fail(line("receive", "ignored: unknown frame"));
     }
 
     /**

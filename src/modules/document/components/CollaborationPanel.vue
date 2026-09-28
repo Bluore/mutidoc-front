@@ -14,17 +14,25 @@ import { formatUnixSeconds } from '@/utils/date'
 
 import { COLLABORATION_STATUS_META, DOCUMENT_SUMMARY_FALLBACK } from '../constants'
 import type { CollaborationStatus, CollaborationUser, DocumentItem } from '../types'
+import DocumentTitleField from './DocumentTitleField.vue'
 
 /**
  * 协作编辑右侧操作面板（纯展示 + 事件上抛）。
- * 展示文档信息、连接状态、在线编辑人、当前用户与活动日志，并提供重连 / 退出操作。
+ * 展示文档信息、连接状态、在线编辑人、当前用户与活动日志，并提供标题编辑 /
+ * 重连 / 退出操作。
  */
 const props = defineProps<{
   document: DocumentItem | null
   status: CollaborationStatus
   revision: number
+  /** 服务端维护的协作标题（可能为空串） */
+  title: string
+  /** 连接就绪后才允许修改标题 */
+  canEditTitle: boolean
   users: CollaborationUser[]
   selfUserId: string
+  /** 服务端为当前连接分配的光标颜色 */
+  selfCursorColor: string
   desynced: boolean
   error: string | null
   logs: string[]
@@ -33,7 +41,7 @@ const props = defineProps<{
   selfAvatar: string
 }>()
 
-const emit = defineEmits<{ reconnect: []; exit: [] }>()
+const emit = defineEmits<{ reconnect: []; exit: []; 'set-title': [value: string] }>()
 
 const statusMeta = computed(() => COLLABORATION_STATUS_META[props.status])
 const documentTitle = computed(
@@ -49,12 +57,22 @@ function toInitial(name: string): string {
 function isSelf(userId: string): boolean {
   return Boolean(userId) && userId === props.selfUserId
 }
+
+/** 标题编辑提交：只上抛，真正上送由父级调用 store。 */
+function handleSetTitle(value: string): void {
+  emit('set-title', value)
+}
 </script>
 
 <template>
   <aside class="collab-panel" aria-label="协作操作面板">
     <PxCard class="collab-panel__card" shape="rect" :bordered="true" title="文档信息">
-      <div class="collab-panel__doc-title">{{ documentTitle }}</div>
+      <DocumentTitleField
+        :title="title"
+        :fallback="documentTitle"
+        :disabled="!canEditTitle"
+        @submit="handleSetTitle"
+      />
       <dl class="collab-panel__meta">
         <div class="collab-panel__row">
           <dt class="collab-panel__label">文档 ID</dt>
@@ -115,6 +133,11 @@ function isSelf(userId: string): boolean {
           :key="`${index}-${user.id || user.name}`"
           class="collab-panel__user"
         >
+          <span
+            class="collab-panel__user-color"
+            :style="{ backgroundColor: user.cursorColor || 'transparent' }"
+            aria-hidden="true"
+          />
           <PxAvatar size="small" shape="circle" bordered>
             {{ toInitial(user.name || user.id) }}
           </PxAvatar>
@@ -135,7 +158,14 @@ function isSelf(userId: string): boolean {
           <span v-else>{{ toInitial(selfName) }}</span>
         </PxAvatar>
         <div class="collab-panel__self-info">
-          <span class="collab-panel__self-name">{{ selfName || '未登录' }}</span>
+          <span class="collab-panel__self-name">
+            <span
+              class="collab-panel__user-color"
+              :style="{ backgroundColor: selfCursorColor || 'transparent' }"
+              aria-hidden="true"
+            />
+            {{ selfName || '未登录' }}
+          </span>
           <span class="collab-panel__self-email">{{ selfEmail || '—' }}</span>
         </div>
       </div>
@@ -172,12 +202,6 @@ function isSelf(userId: string): boolean {
 
 .collab-panel__card {
   flex: none;
-}
-
-.collab-panel__doc-title {
-  margin-bottom: var(--md-space-3);
-  font-size: var(--md-font-size-md);
-  font-weight: 600;
 }
 
 .collab-panel__meta {
@@ -243,6 +267,13 @@ function isSelf(userId: string): boolean {
   align-items: center;
 }
 
+.collab-panel__user-color {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--md-radius-full);
+}
+
 .collab-panel__user-name {
   flex: 1;
   overflow: hidden;
@@ -277,6 +308,9 @@ function isSelf(userId: string): boolean {
 }
 
 .collab-panel__self-name {
+  display: inline-flex;
+  gap: var(--md-space-2);
+  align-items: center;
   font-size: var(--md-font-size-sm);
   font-weight: 600;
 }

@@ -13,8 +13,9 @@ modules/document/
 ├── components/
 │   ├── DocumentCard.vue        # 文档卡片（展示 + 事件上抛）
 │   ├── DocumentToolbar.vue     # 筛选 / 排序 / 刷新 / 新建
-│   ├── DocumentEditor.vue      # 纯文本编辑器（CodeMirror 6，仅展示 + 编辑）
-│   └── CollaborationPanel.vue  # 右侧操作面板（信息 / 状态 / 退出）
+│   ├── DocumentEditor.vue      # 纯文本编辑器（CodeMirror 6，编辑 + 远端光标渲染）
+│   ├── DocumentTitleField.vue  # 文档标题展示 / 编辑（纯展示 + 事件上抛）
+│   └── CollaborationPanel.vue  # 右侧操作面板（标题 / 信息 / 状态 / 在线用户 / 日志 / 退出）
 ├── ot/
 │   ├── ot.ts                   # OT 核心（retain / insert / delete + transform）
 │   ├── ot-client.ts            # OT 客户端状态机（无 I/O、无 DOM）
@@ -66,10 +67,40 @@ modules/document/
 - 身份改由服务端 `init` 响应回传的 `user_id` 采用，用于识别「自己的算子」。
 - 开发服务器已为 `/api` 代理开启 `ws: true`，并让 `dev-get-body-shim` 跳过 WebSocket 握手。
 
-### 本地编辑 → 远端
+### 本地编辑 → 远端（定时采样内容）
 
-编辑器每次输入都交给 `OtClient.calculate()` 折算成算子；若当前没有在途算子就直接发送，
-否则进入等待槽，等回声确认后再自动补发。远端帧到达后立即消费并把 `apply_text` 回填到编辑器。
+计算**不消费输入框事件**：视图挂载时通过 `collaboration.attachSource(() => editor.getText())`
+把「读取文本框当前全文」的能力交给 store。store 每 500ms
+（`COLLABORATION_EDIT_INTERVAL_MS`）采样一次，把文本框内容与前端本地副本
+（`OtClient` 的 `apply_text`）比较：相同则什么都不做，不同才交给
+`OtClient.calculate()` 折算成算子并上送。这样逐键输入被合并成约每 500ms 一次的网络往返与
+OT 变换，且即使某些输入没有触发 change 事件也不会漏掉。若此时已有在途算子则先不发，等回声
+确认后再由等待槽补发；远端帧到达时立即消费并把 `apply_text` 回填到编辑器（消费前会用
+文本框真实内容把尚未折算的输入折叠进算子）。
+
+### 在线用户与光标（User / Cursor）
+
+- `init` 回传完整名册 `users`（含 `cursor_color`）与光标快照 `cursor`；此后服务端以
+  `user` 广播 `join_users` / `quit_users`，以 `cursor` 广播一批光标更新（按 `user_id` 去重）。
+- 编辑器选区变化经 `DocumentEditor` 的 `cursor-change` 事件交给 `setCursor(anchor, head)`，
+  由 store 换算成 **UTF-8 字节**（`codeUnitsToByteOffset`）并**节流 200ms**
+  （`COLLABORATION_CURSOR_THROTTLE_MS`）上报；有在途算子时延后，待确认后补发。
+- 远端光标先经本地在途算子映射回本地文本（`OtClient.mapServerOffsetToLocal` + `transformOffset`），
+  再换算成 CodeMirror 码元坐标（`byteOffsetToCodeUnits`），用 `StateField<DecorationSet>`
+  画成竖线与选区高亮；`assoc=1` 表示别人恰好在光标处插入时粘到插入内容右侧。
+- 右侧面板按 `cursor_color` 给在线用户着色，并展示自己的分配颜色。
+
+### 文档标题（SetTitle）
+
+- 标题是协作会话新增的字段，**只存在于服务端进程内存**，不参与 OT，也不回写 REST /
+  数据库。`init` 回传当前标题 `title`（从未设置过时为空串），之后由 `set_title`
+  广播同步。
+- 用户经右侧面板「文档信息」卡片的 `DocumentTitleField` 修改标题，视图把新值交给
+  `collaboration.setTitle`，由 store 发送 `{ set_title: { title } }`。
+- 服务端更新后向**所有**连接（含设置者自己）广播 `{ set_title: { user_id, title } }`，
+  各端据此收敛；本地不在发送时乐观改写，避免与广播冲突。新值与当前值相同则视为空操作，
+  客户端与服务端都不会广播。标题为空串是合法值，`DocumentTitleField` 为空时退回展示
+  REST `summary`（`未命名文档`）。
 
 ### 编辑器选型（CodeMirror 6）
 
@@ -86,16 +117,21 @@ modules/document/
 - **不使用 `@codemirror/collab`**：它的冲突合并规则与后端 `pkg/ot` 不一致，
   协作仍以 `ot/ot-client.ts` 的状态机为唯一事实来源。
 
-### 协议要点
+### 协议要点（详见 `docs/document/editDocument.md`）
 
-- 发送：`{ edit: { reversion, operator: [ops...] } }`（`operator` 是**裸原子数组**）。
-- 接收：`{ init: { reversion, content, user_id, users } }` 或 `{ edit: { reversion, operator: [...] } }`。
-- 算子里所有位置 / 长度都是 **UTF-8 字节**偏移（见 `ot/ot.ts` 顶部说明）。
+- 发送：`{ edit: { reversion, operator: [ops...] } }`（`operator` 是**裸原子数组**）；
+  光标另发 `{ cursor: { user_id: "", reversion, anchor: { offset, assoc }, head: { offset, assoc } } }`；
+  标题另发 `{ set_title: { title } }`（无版本号、不参与 OT）。
+- 接收：`{ init }` / `{ edit }` / `{ cursor: Cursor[] }` / `{ user: { join_users, quit_users } }` /
+  `{ set_title: { user_id, title } }`，五个字段始终存在，未携带的为 `null`；`edit` 帧可同时
+  携带被平移后的 `cursor`。
+- 所有位置 / 长度、光标 `offset` 都是 **UTF-8 字节**偏移（见 `ot/ot.ts` 顶部说明）。
+- `edit.operator` 收发不对称：客户端发裸数组，服务端下发 `{ id, ops }` 对象数组。
 
 ### 后端现状（开发阶段）
 
-- 正文仅存于服务端进程内存，重启即丢、无法水平扩展；前端不假设正文会持久化。
-- `users` 目前只在 `init` 中下发，断线重连后以服务端最新 `content` / `reversion` 整体替换本地状态。
+- 正文与标题仅存于服务端进程内存，重启即丢、无法水平扩展；前端不假设它们会持久化。
+- 断线重连后以服务端最新 `content` / `reversion` 整体替换本地状态，并按 `init` 重建名册与光标。
 - 右侧面板内置「活动日志」，便于联调时观察协议收发（后端接口完善后可移除）。
 
 ## 真实后端实测（2026-09）
@@ -106,14 +142,5 @@ modules/document/
   在本地联调时转成 JSON body 转发。生产环境需后端把这两个 GET 入参改为 `form:` 或改为 POST。
 - ⚠️ `DELETE /doc/v1/document`（body 传 `document_id`）当前返回 HTTP 500 且文档未被删除，
   疑似后端删除逻辑报错，待后端修复；前端已按 `docs/document-api.md` 对接，修复后无需改动。
-- 🚧 协作编辑 WebSocket 接口仍在开发中，前端按 `reference/` 示例与约定完成对接，待后端联调。
-
-## 真实后端实测（2026-09）
-
-- ✅ `POST /doc/v1/document`（创建）正常。
-- ✅ `GET /doc/v1/document/list`、`GET /doc/v1/document/info`：后端入参声明为 **JSON 请求体**，
-  但浏览器规范禁止 GET 携带 body；前端改用**查询参数**发送，由开发服务器（`dev-get-body-shim`）
-  在本地联调时转成 JSON body 转发。生产环境需后端把这两个 GET 入参改为 `form:` 或改为 POST。
-- ⚠️ `DELETE /doc/v1/document`（body 传 `document_id`）当前返回 HTTP 500 且文档未被删除，
-  疑似后端删除逻辑报错，待后端修复；前端已按 `docs/document-api.md` 对接，修复后无需改动。
+- 🚧 协作编辑 WebSocket 接口按 `docs/document/editDocument.md` 对接（含 User / Cursor），待后端联调。
 

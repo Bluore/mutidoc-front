@@ -10,6 +10,7 @@ export type {
   CreateDocumentResult,
   DocumentItem,
   DocumentSort,
+  RemoteCursor,
 } from './types'
 export {
   DOCUMENT_PAGE_SIZE,

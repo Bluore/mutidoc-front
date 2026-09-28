@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Alert as PxAlert, Button as PxButton, Message, Tag as PxTag } from '@pixelium/web-vue/es'
 import { IconAngleLeft } from '@pixelium/web-vue/icon-hn/es'
-import { computed, onBeforeUnmount, onMounted } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { useUserStore } from '@/modules/user'
@@ -28,22 +28,33 @@ const collaboration = useCollaborationStore()
 const userStore = useUserStore()
 
 const statusMeta = computed(() => COLLABORATION_STATUS_META[collaboration.status])
+/** 标题优先取协作会话内的值（服务端内存维护），为空时退回 REST summary。 */
 const title = computed(
-  () => documentStore.detail?.summary.trim() || DOCUMENT_SUMMARY_FALLBACK,
+  () =>
+    collaboration.title.trim() ||
+    documentStore.detail?.summary.trim() ||
+    DOCUMENT_SUMMARY_FALLBACK,
 )
 const fileName = computed(() => `document-${props.id}${COLLABORATION_FILE_EXTENSION}`)
 const disconnected = computed(
   () => collaboration.status === 'closed' || collaboration.status === 'error',
 )
 
+/** 编辑器实例：用于把「读取当前全文」的能力交给 store 定时采样。 */
+const editorRef = ref<InstanceType<typeof DocumentEditor> | null>(null)
+
 onMounted(() => {
+  // 先登记采样源，再建连：store 的定时器只比较文本框内容与本地副本，不依赖输入事件。
+  collaboration.attachSource(() => editorRef.value?.getText() ?? '')
   void documentStore.loadDetail(props.id)
   void userStore.ensureLoaded()
   collaboration.connect(props.id)
 })
 
 onBeforeUnmount(() => {
+  // 先 disconnect（退出前会再采样一次并尽力送出），再解除采样源。
   collaboration.disconnect()
+  collaboration.detachSource()
 })
 
 /** 返回详情页（同时断开协作连接） */
@@ -88,19 +99,24 @@ function handleExit(): void {
 
     <div class="collab-edit__body">
       <DocumentEditor
+        ref="editorRef"
         class="collab-edit__editor"
         :model-value="collaboration.content"
         :disabled="!collaboration.canEdit"
         :file-name="fileName"
-        @update:model-value="collaboration.setContent"
+        :remote-cursors="collaboration.remoteCursors"
+        @cursor-change="collaboration.setCursor"
       />
 
       <CollaborationPanel
         :document="documentStore.detail"
         :status="collaboration.status"
         :revision="collaboration.revision"
+        :title="collaboration.title"
+        :can-edit-title="collaboration.canEdit"
         :users="collaboration.users"
         :self-user-id="collaboration.selfUserId"
+        :self-cursor-color="collaboration.selfCursorColor"
         :desynced="collaboration.desynced"
         :error="collaboration.error"
         :logs="collaboration.logs"
@@ -108,6 +124,7 @@ function handleExit(): void {
         :self-email="userStore.profile?.email ?? ''"
         :self-avatar="userStore.profile?.avatar ?? ''"
         @reconnect="collaboration.reconnect"
+        @set-title="collaboration.setTitle"
         @exit="handleExit"
       />
     </div>

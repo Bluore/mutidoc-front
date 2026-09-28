@@ -119,6 +119,91 @@ export function utf8Length(text: string): number {
     return textEncoder.encode(text).length;
 }
 
+/** Bytes `codePoint` occupies once encoded as UTF-8, including surrogates pairs. */
+function codePointByteLength(codePoint: number): number {
+    if (codePoint <= 0x7f) return 1;
+    if (codePoint <= 0x7ff) return 2;
+    if (codePoint <= 0xffff) return 3;
+    return 4;
+}
+
+/**
+ * Convert a UTF-8 byte offset into a UTF-16 code-unit index in `text`.
+ *
+ * A cursor's `offset` travels over the wire in bytes (same unit as an
+ * operator's atoms), while CodeMirror - like every JS DOM API - addresses text
+ * in UTF-16 code units. This is the conversion the display side needs. A byte
+ * offset that lands in the middle of a code point rounds up to the next one, so
+ * the result is always a valid caret position.
+ */
+export function byteOffsetToCodeUnits(text: string, byteOffset: number): number {
+    const target = Math.max(0, Math.trunc(byteOffset));
+    let bytes = 0;
+    let index = 0;
+
+    while (index < text.length && bytes < target) {
+        const codePoint = text.codePointAt(index) as number;
+        bytes += codePointByteLength(codePoint);
+        index += codePoint > 0xffff ? 2 : 1;
+    }
+
+    return index;
+}
+
+/**
+ * Convert a UTF-16 code-unit index into a UTF-8 byte offset; the inverse of
+ * `byteOffsetToCodeUnits` and what turns an editor selection into a
+ * `Cursor.anchor` / `Cursor.head`.
+ */
+export function codeUnitsToByteOffset(text: string, codeUnitOffset: number): number {
+    return utf8Length(text.slice(0, Math.max(0, codeUnitOffset)));
+}
+
+/**
+ * Map a cursor position through an operator, from the operator's input document
+ * to the document it produces. This is how a remote caret keeps its place when
+ * the local client has edits the server has not applied yet.
+ *
+ * `offset` is a UTF-8 byte offset, matching the operator atoms. `assoc` decides
+ * the ownership of an insertion landing exactly on the caret, exactly as the
+ * wire `Cursor` documents it: `assoc >= 0` sticks to the right of the inserted
+ * text, `assoc < 0` stays left. A position inside a deleted run collapses to the
+ * deletion point, which is what the backend does when it moves other users'
+ * carets.
+ */
+export function transformOffset(operator: Operator, offset: number, assoc: number): number {
+    const target = Math.max(0, Math.trunc(offset));
+    let input = 0;
+    let output = 0;
+
+    for (const atom of operator.ops) {
+        if (atom.type === TypeOperator.Insert) {
+            const length = utf8Length(atom.str);
+            if (input < target || (input === target && assoc >= 0)) {
+                output += length;
+            }
+            continue;
+        }
+
+        const n = atom.n;
+        if (atom.type === TypeOperator.Retain) {
+            if (target < input + n) {
+                return output + (target - input);
+            }
+            input += n;
+            output += n;
+            continue;
+        }
+
+        if (target < input + n) {
+            return output;
+        }
+        input += n;
+    }
+
+    return output + Math.max(0, target - input);
+}
+
 /** One atom in its wire form: a string is an insert, a number a retain/delete. */
 export type OperatorOpJson = string | number;
 
