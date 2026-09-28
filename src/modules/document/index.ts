@@ -10,6 +10,7 @@ export type {
   CreateDocumentResult,
   DocumentItem,
   DocumentSort,
+  GrantLinkResult,
   RemoteCursor,
 } from './types'
 export {

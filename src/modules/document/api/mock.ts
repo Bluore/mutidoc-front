@@ -91,3 +91,17 @@ export async function mockFetchDocumentInfo(id: string): Promise<DocumentItem> {
   if (!item) throw new Error('文档不存在')
   return { ...item }
 }
+
+/** 授权链接按 document_id 复用，与后端「同文档重复调用复用同一链接」的语义一致 */
+const grantLinks = new Map<string, string>()
+
+export async function mockFetchGrantLink(documentId: string): Promise<string> {
+  await delay(300)
+  const existing = grantLinks.get(documentId)
+  if (existing) return existing
+
+  const grantId = Math.random().toString(16).slice(2, 14)
+  const link = `${window.location.origin}/grant/${grantId}`
+  grantLinks.set(documentId, link)
+  return link
+}

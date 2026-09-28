@@ -17,6 +17,15 @@ export interface CreateDocumentResult {
   document_id: string
 }
 
+/**
+ * 生成授权链接返回（GET /doc/v1/document/grant）。
+ * `link` 形如 `<BaseUrl>/grant/<grantId>`，仅归属者可获取；
+ * 同一文档重复调用会复用同一条链接。
+ */
+export interface GrantLinkResult {
+  link: string
+}
+
 /** 列表排序方式（后端固定按 create_at 倒序，这里是当前页的前端排序） */
 export type DocumentSort = 'create' | 'update'
 

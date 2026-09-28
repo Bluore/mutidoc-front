@@ -8,6 +8,7 @@ import {
   deleteDocument as deleteDocumentApi,
   fetchDocumentInfo as fetchDocumentInfoApi,
   fetchDocumentList,
+  fetchGrantLink as fetchGrantLinkApi,
 } from '../api/document'
 import { DOCUMENT_PAGE_SIZE } from '../constants'
 import type { DocumentItem, DocumentSort } from '../types'
@@ -31,6 +32,10 @@ export const useDocumentStore = defineStore('document', () => {
   const detail = ref<DocumentItem | null>(null)
   const detailLoading = ref(false)
   const detailError = ref<string | null>(null)
+  /** 当前生成/复用的授权链接；未请求或失败时为 null */
+  const grantLink = ref<string | null>(null)
+  const grantLinkLoading = ref(false)
+  const grantLinkError = ref<string | null>(null)
 
   // getters
   /** 当前页数据的前端筛选 + 排序 */
@@ -114,6 +119,27 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  async function generateGrantLink(documentId: string): Promise<string> {
+    grantLinkLoading.value = true
+    grantLinkError.value = null
+    grantLink.value = null
+    try {
+      grantLink.value = await fetchGrantLinkApi(documentId)
+      return grantLink.value
+    } catch (e) {
+      grantLinkError.value = getErrorMessage(e, '授权链接生成失败')
+      throw e
+    } finally {
+      grantLinkLoading.value = false
+    }
+  }
+
+  /** 关闭分享弹窗时清空上一次的结果，避免下次打开闪现旧链接 */
+  function resetGrantLink(): void {
+    grantLink.value = null
+    grantLinkError.value = null
+  }
+
   async function changePage(targetPage: number): Promise<void> {
     await loadList(targetPage)
   }
@@ -137,6 +163,9 @@ export const useDocumentStore = defineStore('document', () => {
     detail,
     detailLoading,
     detailError,
+    grantLink,
+    grantLinkLoading,
+    grantLinkError,
     filteredList,
     totalPages,
     isEmpty,
@@ -147,6 +176,8 @@ export const useDocumentStore = defineStore('document', () => {
     setKeyword,
     setSort,
     loadDetail,
+    generateGrantLink,
+    resetGrantLink,
     changePage,
     changePageSize,
   }

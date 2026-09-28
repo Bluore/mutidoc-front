@@ -2,12 +2,13 @@ import { request } from '@/api'
 import type { PageResult } from '@/api'
 import { env } from '@/config/env'
 
-import type { DocumentItem } from '../types'
+import type { DocumentItem, GrantLinkResult } from '../types'
 import {
   mockCreateDocument,
   mockDeleteDocument,
   mockFetchDocumentInfo,
   mockFetchDocumentList,
+  mockFetchGrantLink,
 } from './mock'
 
 /**
@@ -79,4 +80,21 @@ export async function fetchDocumentInfo(documentId: string): Promise<DocumentIte
     params: { document_id: documentId },
   })
   return data.document_info
+}
+
+/**
+ * 生成（或复用）文档授权链接：GET /doc/v1/document/grant
+ *
+ * 仅文档归属者可调用；同一 `document_id` 重复调用会复用已有链接。
+ * 该接口只返回链接，真正的授权发生在被授权用户打开链接时，由 link 服务完成。
+ */
+export async function fetchGrantLink(documentId: string): Promise<string> {
+  if (env.useMock) return mockFetchGrantLink(documentId)
+
+  const data = await request<GrantLinkResult>({
+    url: '/doc/v1/document/grant',
+    method: 'get',
+    params: { document_id: documentId },
+  })
+  return data.link
 }

@@ -15,7 +15,8 @@ modules/document/
 │   ├── DocumentToolbar.vue     # 筛选 / 排序 / 刷新 / 新建
 │   ├── DocumentEditor.vue      # 纯文本编辑器（CodeMirror 6，编辑 + 远端光标渲染）
 │   ├── DocumentTitleField.vue  # 文档标题展示 / 编辑（纯展示 + 事件上抛）
-│   └── CollaborationPanel.vue  # 右侧操作面板（标题 / 信息 / 状态 / 在线用户 / 日志 / 退出）
+│   ├── CollaborationPanel.vue  # 右侧操作面板（标题 / 信息 / 状态 / 在线用户 / 日志 / 退出）
+│   └── GrantLinkDialog.vue     # 授权链接分享弹窗（生成 / 复用 + 复制）
 ├── ot/
 │   ├── ot.ts                   # OT 核心（retain / insert / delete + transform）
 │   ├── ot-client.ts            # OT 客户端状态机（无 I/O、无 DOM）
@@ -41,6 +42,7 @@ modules/document/
 | 创建文档 | POST | `/doc/v1/document` | 返回 `document_id` |
 | 删除文档 | DELETE | `/doc/v1/document` | body 传 `document_id`，仅归属者可删 |
 | 获取文档元信息 | GET | `/doc/v1/document/info` | 返回 `{ document_info }` |
+| 生成授权链接 | GET | `/doc/v1/document/grant` | 返回 `{ link }`，仅归属者，重复调用复用同一链接 |
 | 协作编辑 | WS | `/doc/v1/document/edit?document_id=` | 升级为 WebSocket，走 OT 协议 |
 
 > `Document` **不含正文**；正文只在 WebSocket 协作连接中下发。
@@ -50,6 +52,19 @@ modules/document/
 - 后端列表结构为 `documents_info` + `documents_len`，API 层统一适配为 `PageResult{ list, total, page, pageSize }`。
 - 文档没有「标题」字段，卡片用 `summary` 作为标题，为空时显示「未命名文档」。
 - 时间字段是秒级 Unix 时间戳，统一用 `formatUnixSeconds` 格式化。
+
+## 授权链接分享（GetGrantLink）
+
+文档详情页右上角「分享授权链接」打开 `components/GrantLinkDialog.vue`，由
+`stores/document.ts` 的 `generateGrantLink(documentId)` 调用
+`GET /doc/v1/document/grant`，成功后在弹窗内展示 `data.link` 并提供一键复制。
+
+- 仅文档归属者可调用；同一 `(document_id, 归属者)` 重复调用会**复用同一条链接**，
+  服务端不校验旧链接是否已过期，失效链接由被授权用户打开时的 link 服务判定。
+- 链接形如 `<BaseUrl>/grant/<grantId>`，默认有效期 7 天；本接口**不代替归属者授权**，
+  真正的权限授予发生在被授权用户登录后打开链接时（link 服务 302 跳转到 `documents/:id/edit`）。
+- 复制能力封装在 `src/utils/clipboard.ts`（安全上下文用 Clipboard API，否则退回
+  `execCommand`）。
 
 ## 协作编辑（WebSocket）
 
