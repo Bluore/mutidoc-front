@@ -3,7 +3,14 @@
  */
 export { default as documentRoutes } from './routes'
 export { useDocumentStore } from './stores/document'
-export type { CreateDocumentResult, DocumentItem, DocumentSort } from './types'
+export { useCollaborationStore } from './stores/collaboration'
+export type {
+  CollaborationStatus,
+  CollaborationUser,
+  CreateDocumentResult,
+  DocumentItem,
+  DocumentSort,
+} from './types'
 export {
   DOCUMENT_PAGE_SIZE,
   DOCUMENT_PAGE_SIZE_OPTIONS,

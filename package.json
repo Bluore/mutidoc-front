@@ -9,6 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
     "@pixelium/web-vue": "0.2.1-delta",
     "axios": "^1.20.0",
     "pinia": "^4.0.3",

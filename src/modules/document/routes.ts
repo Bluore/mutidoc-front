@@ -15,6 +15,13 @@ const routes: RouteRecordRaw[] = [
     props: true,
     meta: { title: '文档详情' },
   },
+  {
+    path: 'documents/:id/edit',
+    name: 'document-edit',
+    component: () => import('./views/CollaborationEditView.vue'),
+    props: true,
+    meta: { title: '协作编辑' },
+  },
 ]
 
 export default routes

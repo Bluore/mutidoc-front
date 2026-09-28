@@ -25,10 +25,10 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const documentStore = useDocumentStore()
 
-const editLimitations = [
-  '浏览器无法为 WebSocket 设置 Authorization 头，后端暂未提供票据 / 查询参数方案。',
-  '文档正文保存在服务端进程内存中，重启即丢失，且不能多副本水平扩展。',
-  '协作身份取自客户端首帧上报的 user_id，后端尚未与 JWT 校验。',
+const editNotes = [
+  '浏览器无法为 WebSocket 设置 Authorization 头，因此按后端约定把 token 放进首帧 init 消息完成鉴权。',
+  '正文不通过 REST 返回，进入编辑页后由 WebSocket 的 init 消息下发，并以 OT 算子实时同步。',
+  '后端当前把正文保存在进程内存中，重启即丢失，且暂不支持多副本水平扩展。',
 ] as const
 
 onMounted(() => {
@@ -44,6 +44,10 @@ watch(
 
 function backToList(): void {
   void router.push({ name: 'document-list' })
+}
+
+function enterEdit(): void {
+  void router.push({ name: 'document-edit', params: { id: props.id } })
 }
 
 async function handleRemove(): Promise<void> {
@@ -131,12 +135,8 @@ async function handleRemove(): Promise<void> {
       </PxCard>
 
       <PxCard class="document-detail__card" shape="rect" :bordered="true" title="协作编辑">
-        <PxAlert type="warning" title="当前暂不可用">
-          浏览器直连 WebSocket 会被后端鉴权拦截，需后端补充票据 / 查询参数方案后再接入 OT 协作。
-        </PxAlert>
-
         <ul class="document-detail__list">
-          <li v-for="item in editLimitations" :key="item" class="document-detail__list-item">
+          <li v-for="item in editNotes" :key="item" class="document-detail__list-item">
             {{ item }}
           </li>
         </ul>
@@ -145,14 +145,13 @@ async function handleRemove(): Promise<void> {
 
         <div class="document-detail__editor-placeholder">
           <p class="document-detail__editor-hint">
-            正文不通过 REST 接口返回，仅在 WebSocket 协作连接中下发（后端初始内容为
-            <code>helloworld</code>）。
+            进入后左侧为纯文本编辑器，右侧为操作面板（在线编辑人、连接状态、退出编辑等）。
           </p>
-          <PxButton native-type="button" disabled>
+          <PxButton native-type="button" @click="enterEdit">
             <template #icon>
               <IconShare />
             </template>
-            进入协作编辑（暂未开放）
+            进入协作编辑
           </PxButton>
         </div>
       </PxCard>
@@ -242,12 +241,5 @@ async function handleRemove(): Promise<void> {
   margin: 0;
   font-size: var(--md-font-size-sm);
   color: var(--md-color-text-secondary);
-}
-
-.document-detail__editor-hint code {
-  padding: 0 var(--md-space-1);
-  font-family: var(--md-font-mono);
-  color: var(--md-color-text);
-  background-color: var(--md-color-bg);
 }
 </style>

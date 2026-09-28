@@ -25,8 +25,16 @@ services:
     image: mutidoc-front:dev
     container_name: mutidoc-front
     restart: unless-stopped
+    # 启动时先确保依赖就绪再跑 dev。
+    # 匿名卷 /app/node_modules 可能因依赖变更而过期或为空（例如 down -v 之后），
+    # 只依赖 pnpm 的隐式“运行前校验”不可靠，这里显式安装一次：
+    # 镜像内已有依赖时几乎是空操作；缺失时（如新增 CodeMirror）会自动补齐。
+    # CI=true 让 pnpm 以非交互、冻结锁文件的方式执行（需要清空 node_modules 时也不会卡在 TTY）。
+    command: sh -c "pnpm install --frozen-lockfile && pnpm dev --host 0.0.0.0 --port 80"
     environment:
       - TZ=Asia/Shanghai
+      # 让 pnpm 在需要清空 node_modules 重装时不因缺少 TTY 而中止
+      - CI=true
       # 通过绑定额挂载时，轮询才能可靠感知宿主机文件变化（配合 vite.config.ts 的 server.watch）
       - DEV_USE_POLLING=true
       # /api 的代理目标：真实网关（nginx-gateway）映射在宿主机 8888。

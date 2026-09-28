@@ -34,6 +34,9 @@ function devGetBodyShim(target: string): Plugin {
       server.middlewares.use((req, res, next) => {
         if (req.method !== 'GET' || !req.url?.startsWith('/api/')) return next()
 
+        // WebSocket 握手也是 GET，必须交给 Vite 代理处理，不能转成 JSON body。
+        if (req.headers.upgrade?.toLowerCase() === 'websocket') return next()
+
         const url = new URL(req.url, 'http://localhost')
         if (url.searchParams.size === 0) return next()
 
@@ -90,14 +93,30 @@ export default defineConfig(({ mode }) => {
         // 全项目统一使用 @ 指向 src，避免出现 ../../.. 这类相对路径
         '@': fileURLToPath(new URL('./src', import.meta.url)),
       },
+      // CodeMirror 各包互有依赖，去重避免加载到多份 @codemirror/state 实例
+      dedupe: ['@codemirror/state', '@codemirror/view'],
+    },
+    optimizeDeps: {
+      // 编辑器只在懒加载的协作编辑页里用到；提前预打包，避免首次进入该路由时
+      // 触发依赖重优化 + 页面重载（表现为 “error loading dynamically imported module”）
+      include: ['@codemirror/state', '@codemirror/view', '@codemirror/commands'],
     },
     server: {
       port: 5173,
+      // 同时监听 IPv4（0.0.0.0）与 IPv6（::）。默认 host: 'localhost' 在本机只会绑定
+      // IPv6 回环 ::1，客户端先落到 127.0.0.1 时 SYN 被丢弃、要等约 2s 才回退，
+      // 表现为「首次请求卡 2 秒」。绑全地址可让两族都秒连。
+      host: true,
+      // 允许通过任意域名 / IP（含反向代理、内网域名）访问开发服务器，
+      // 否则 Vite 会以 “Blocked request. This host is not allowed.” 拒绝请求
+      allowedHosts: true,
       // 开发环境联调真实后端：/api 代理到网关（目标可用 DEV_PROXY_TARGET 覆盖）
       proxy: {
         '/api': {
           target: proxyTarget,
           changeOrigin: true,
+          // 协作编辑走同一网关：放行 WebSocket 升级
+          ws: true,
         },
       },
       // 容器内以「绑定挂载」运行时，轮询才能可靠感知宿主机文件变化

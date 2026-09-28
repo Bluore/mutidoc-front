@@ -19,3 +19,12 @@ export interface CreateDocumentResult {
 
 /** 列表排序方式（后端固定按 create_at 倒序，这里是当前页的前端排序） */
 export type DocumentSort = 'create' | 'update'
+
+/** 协作会话连接状态 */
+export type CollaborationStatus = 'idle' | 'connecting' | 'connected' | 'closed' | 'error'
+
+/** 服务端 init 消息里回传的在线用户（用于右侧「编辑人信息」面板） */
+export interface CollaborationUser {
+  id: string
+  name: string
+}
