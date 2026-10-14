@@ -27,7 +27,7 @@ modules/document/
 ├── views/
 │   ├── WorkbenchView.vue           # 工作台（主页）
 │   ├── DocumentDetailView.vue      # 文档详情
-│   └── CollaborationEditView.vue   # 协作编辑（左编辑器 + 右面板）
+│   └── CollaborationEditView.vue   # 协作编辑（左编辑器 + 右侧栏）
 ├── types/index.ts
 ├── constants.ts
 ├── routes.ts
@@ -43,7 +43,7 @@ modules/document/
 | 删除文档 | DELETE | `/doc/v1/document` | body 传 `document_id`，仅归属者可删 |
 | 获取文档元信息 | GET | `/doc/v1/document/info` | 返回 `{ document_info }` |
 | 生成授权链接 | GET | `/doc/v1/document/grant` | 返回 `{ link }`，仅归属者，重复调用复用同一链接 |
-| 协作编辑 | WS | `/doc/v1/document/edit?document_id=` | 升级为 WebSocket，走 OT 协议 |
+| 协作编辑 | WS | `/edit/v1/document?document_id=` | 升级为 WebSocket，走 OT 协议 |
 
 > `Document` **不含正文**；正文只在 WebSocket 协作连接中下发。
 
@@ -73,9 +73,13 @@ modules/document/
 **View → `stores/collaboration.ts` → `api/collaboration.ts` / `ot/*` → 后端**，
 视图不直接接触 socket 或 OT 客户端，OT 客户端也不感知 DOM / Router。
 
+页面还内嵌了 Agent 模块的 `AgentSidebar`（`@/modules/agent`）：右下角悬浮按钮打开右侧
+浮层侧栏，向 Agent 提问、由 SSE 流式回复。浮层不参与文档流，与会话协作相互独立，
+接口与实现见 `src/modules/agent/README.md`。
+
 ### 连接与鉴权
 
-- 端点留空时按 `ws(s)://<origin> + VITE_API_BASE_URL + /doc/v1/document/edit?document_id=<id>` 推导，
+- 端点留空时按 `ws(s)://<origin> + VITE_API_BASE_URL + /edit/v1/document?document_id=<id>` 推导，
   可用 `VITE_COLLAB_WS_URL` 覆盖（例如后端直连 `ws://localhost:8888/ot`）。
 - 浏览器无法给 WebSocket 设置 `Authorization` 头，因此按后端约定把 token 放进**首帧 init 消息**：
   `{ "token": "<access_token>" }`（不是参考代码里的 `user_id` / `user_name`）。

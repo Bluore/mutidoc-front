@@ -32,7 +32,7 @@ export interface CollabTransport {
 /**
  * 建立到 `url` 的 WebSocket 连接。
  *
- * @param url 协作编辑端点，例如 `ws://host/api/doc/v1/document/edit?document_id=1`
+ * @param url 协作编辑端点，例如 `ws://host/api/edit/v1/document?document_id=1`
  * @param handlers 生命周期回调
  */
 export function createWebSocketTransport(

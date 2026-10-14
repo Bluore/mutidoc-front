@@ -64,7 +64,7 @@ There is no ESLint / Prettier / Vitest config and no lint or test script. Do not
 
 ## Collaboration / OT (document module)
 
-- WebSocket endpoint derives from `origin + env.apiBaseUrl` (`/doc/v1/document/edit?document_id=`) or
+- WebSocket endpoint derives from `origin + env.apiBaseUrl` (`/edit/v1/document?document_id=`) or
   `VITE_COLLAB_WS_URL`.
 - Browsers cannot set a WS `Authorization` header, so the token is sent in the **first `init` frame**.
   All OT operator positions/lengths are **UTF-8 byte offsets**.

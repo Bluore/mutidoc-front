@@ -4,6 +4,7 @@ import { IconAngleLeft } from '@pixelium/web-vue/icon-hn/es'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import { AgentSidebar } from '@/modules/agent'
 import { useUserStore } from '@/modules/user'
 
 import CollaborationPanel from '../components/CollaborationPanel.vue'
@@ -128,6 +129,8 @@ function handleExit(): void {
         @exit="handleExit"
       />
     </div>
+
+    <AgentSidebar />
   </section>
 </template>
 

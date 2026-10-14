@@ -12,11 +12,11 @@
 | --- | --- |
 | 协议 | WebSocket（`ws://` / `wss://`），业务消息为 JSON 文本帧 |
 | 方法 | `GET`（HTTP 升级握手） |
-| 路径 | `/api/doc/v1/document/edit` |
+| 路径 | `/api/edit/v1/document` |
 | Query | `document_id`（必填，目标文档 ID） |
 
-- 直连文档服务：`ws://localhost:1101/api/doc/v1/document/edit?document_id=doc-1001`
-- 经 nginx 网关：`ws://localhost:8888/api/doc/v1/document/edit?document_id=doc-1001`
+- 直连文档服务：`ws://localhost:1101/api/edit/v1/document?document_id=doc-1001`
+- 经 nginx 网关：`ws://localhost:8888/api/edit/v1/document?document_id=doc-1001`
 
 鉴权**不在 HTTP 层完成**（该路由未挂 `JwtAuth`）。连接建立后，客户端必须把 JWT 作为
 **第一条 WebSocket 文本消息**发送：
