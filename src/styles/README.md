@@ -16,6 +16,7 @@
    - `tokens.css`：设计令牌（CSS 变量），跨模块共享的唯一通道。
    - `reset.css`：全局重置，唯一允许写宽泛元素选择器的地方。
    - `utilities.css`：与业务无关的工具类，必须带 `md-` 前缀。
+   - `markdown.css`：`.md-markdown` 内容样式，作用于 `MarkdownText` 组件 `v-html` 注入的 HTML 节点。
    - 业务组件**禁止**再写全局选择器（`body`、`.foo`、`#id` 等）。
 
 3. **类名用 BEM，并带模块前缀**

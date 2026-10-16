@@ -19,6 +19,8 @@ import {
 } from '@pixelium/web-vue/icon-hn/es'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import MarkdownText from '@/components/MarkdownText.vue'
+
 import {
   AGENT_CONTEXT_LABEL,
   AGENT_EMPTY_HINT,
@@ -386,7 +388,11 @@ onBeforeUnmount(() => {
                     </summary>
                     <p class="agent-panel__context-text">{{ item.context }}</p>
                   </details>
-                  <p v-if="item.text" class="agent-panel__content">{{ item.text }}</p>
+                  <MarkdownText
+                    v-if="item.text"
+                    class="agent-panel__content"
+                    :source="item.text"
+                  />
                 </template>
 
                 <!-- 助手 / 其它消息：按片段顺序穿插渲染 -->
@@ -424,7 +430,11 @@ onBeforeUnmount(() => {
                         </p>
                       </div>
                     </details>
-                    <p v-else class="agent-panel__content">{{ segment.text }}</p>
+                    <MarkdownText
+                      v-else
+                      class="agent-panel__content"
+                      :source="segment.text"
+                    />
                   </template>
                 </template>
                 <span
@@ -448,7 +458,7 @@ onBeforeUnmount(() => {
               </PxAvatar>
               <div class="agent-panel__bubble">
                 <span class="agent-panel__role">我</span>
-                <p class="agent-panel__content">{{ agent.pendingQuery }}</p>
+                <MarkdownText class="agent-panel__content" :source="agent.pendingQuery" />
               </div>
             </div>
 
@@ -719,12 +729,9 @@ onBeforeUnmount(() => {
   color: var(--md-color-text-secondary);
 }
 
+/* 正文气泡：具体排版（段落 / 标题 / 列表 / 代码等）由全局 .md-markdown 负责 */
 .agent-panel__content {
   margin: 0;
-  font-size: var(--md-font-size-sm);
-  line-height: var(--md-line-height);
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
 }
 
 /* 思考过程：默认折叠，避免长思维链淹没正文 */

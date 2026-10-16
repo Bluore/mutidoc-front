@@ -1,8 +1,8 @@
 # 全局共享目录说明
 
-- `components/`：**跨模块**复用的基础 UI 组件（如 `BaseButton.vue`）。只放与业务无关的通用组件，带业务语义的组件请放进所属模块。
+- `components/`：**跨模块**复用的基础 UI 组件（如 `BaseButton.vue`、`MarkdownText.vue`）。只放与业务无关的通用组件，带业务语义的组件请放进所属模块。
 - `composables/`：跨模块复用的组合式函数（如 `useDebounceFn.ts`）。
-- `utils/`：纯函数工具，禁止依赖 Vue / Pinia / Router。
+- `utils/`：纯函数工具，禁止依赖 Vue / Pinia / Router（如 `markdown.ts` 提供 Markdown → 安全 HTML 渲染）。
 - `api/`：全局请求基础设施（axios 实例、错误归一化、通用类型）。
 - `config/`：环境与全局常量。
 - `stores/`：Pinia 实例与**全局级** store；业务 store 放在模块内。

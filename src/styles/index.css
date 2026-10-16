@@ -1,7 +1,8 @@
 /*
  * 全局样式入口，仅此文件在 main.ts 中被引入。
- * 顺序：令牌 → 重置 → 工具类。
+ * 顺序：令牌 → 重置 → 工具类 → Markdown 内容样式。
  */
 @import './tokens.css';
 @import './reset.css';
 @import './utilities.css';
+@import './markdown.css';

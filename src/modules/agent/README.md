@@ -21,7 +21,9 @@ modules/agent/
 └── index.ts                # 对外出口
 ```
 
-通用 SSE 解析器在 `src/utils/sse.ts`（与业务无关，可复用）。
+通用 SSE 解析器在 `src/utils/sse.ts`（与业务无关，可复用）。Markdown 渲染在
+`src/utils/markdown.ts`（markdown-it + DOMPurify，输出已消毒 HTML）与
+`src/components/MarkdownText.vue`（`v-html` 承载，内容样式在 `src/styles/markdown.css`）。
 
 ## 接口映射
 
@@ -144,8 +146,12 @@ View ──调用──▶ Store(action: ask/stop/reset) ──▶ api/*.ts ─�
   （默认收起）；解析见 `user-context.ts` 的 `splitUserContext`。
 - 助手气泡内按 `segments` 顺序**穿插**渲染：每段 `reasoning` 是一个「思考过程」折叠区、
   每段 `tool` 是一个「工具调用 · 工具名」折叠区（展开后显示参数 / 返回结果，能解析为 JSON 时
-  格式化），`content` 段直接作为正文铺开。因一次助手回合只渲染这一个气泡，正文出现前显示
+  格式化），`content` 段作为正文铺开。因一次助手回合只渲染这一个气泡，正文出现前显示
   打字动画。
+- **Markdown 渲染**：用户输入正文与助手 `content` 正文经 `MarkdownText` 组件渲染
+  （markdown-it 解析 + DOMPurify 消毒，`html: false`、`breaks: true`、外链新窗口打开），
+  支持标题 / 列表 / 加粗 / 行内代码 / 代码块 / 表格 / 引用等；`reasoning` 思考过程、
+  工具参数 / 结果（JSON）与「环境上下文」仍按原文等宽展示，不做 Markdown 解析。
 - 头部「历史会话」按钮切到列表视图（含加载 / 出错 / 空态），点选会话即恢复并切回对话；
   恢复期间状态标签显示「载入中」。
 - 生成中禁用输入与会话切换，可点「停止」结束本轮；`Esc` 或关闭按钮收起侧栏。

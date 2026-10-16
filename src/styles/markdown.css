@@ -1,0 +1,127 @@
+/*
+ * 全局 Markdown 内容样式
+ * ---------------------------------------------------------------
+ * 作用于 <MarkdownText> 通过 v-html 注入的 HTML 节点。这类节点不带组件的 scoped
+ * 属性，局部样式无法命中，因此统一放在全局，并用 md-markdown 命名空间隔离。
+ * 所有取值均走设计令牌，支持主题切换。
+ */
+.md-markdown {
+  overflow-wrap: anywhere;
+  font-size: var(--md-font-size-sm);
+  line-height: var(--md-line-height);
+  color: inherit;
+}
+
+/* 首尾元素不额外撑开气泡间距 */
+.md-markdown > :first-child {
+  margin-top: 0;
+}
+
+.md-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.md-markdown p {
+  margin: 0 0 var(--md-space-2);
+}
+
+.md-markdown h1,
+.md-markdown h2,
+.md-markdown h3,
+.md-markdown h4,
+.md-markdown h5,
+.md-markdown h6 {
+  margin: var(--md-space-3) 0 var(--md-space-2);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.md-markdown h1 {
+  font-size: var(--md-font-size-xl);
+}
+
+.md-markdown h2 {
+  font-size: var(--md-font-size-lg);
+}
+
+.md-markdown h3,
+.md-markdown h4,
+.md-markdown h5,
+.md-markdown h6 {
+  font-size: var(--md-font-size-md);
+}
+
+.md-markdown ul,
+.md-markdown ol {
+  padding-left: var(--md-space-5);
+  margin: 0 0 var(--md-space-2);
+}
+
+.md-markdown li {
+  margin: var(--md-space-1) 0;
+}
+
+.md-markdown a {
+  color: var(--md-color-primary);
+  text-decoration: underline;
+}
+
+.md-markdown code {
+  padding: 0 var(--md-space-1);
+  font-family: var(--md-font-mono);
+  font-size: 0.9em;
+  background-color: var(--md-color-surface-hover);
+  border: 1px solid var(--md-color-border);
+  border-radius: var(--md-radius-sm);
+}
+
+.md-markdown pre {
+  padding: var(--md-space-3);
+  margin: 0 0 var(--md-space-2);
+  overflow-x: auto;
+  background-color: var(--md-color-surface-hover);
+  border: 1px solid var(--md-color-border);
+  border-radius: var(--md-radius-md);
+}
+
+/* 代码块内部的 code 不再叠加行内 code 的边框与底色 */
+.md-markdown pre code {
+  padding: 0;
+  background: none;
+  border: 0;
+}
+
+.md-markdown blockquote {
+  padding-left: var(--md-space-3);
+  margin: 0 0 var(--md-space-2);
+  color: var(--md-color-text-secondary);
+  border-left: 2px solid var(--md-color-border);
+}
+
+.md-markdown table {
+  width: 100%;
+  margin: 0 0 var(--md-space-2);
+  border-collapse: collapse;
+}
+
+.md-markdown th,
+.md-markdown td {
+  padding: var(--md-space-1) var(--md-space-2);
+  text-align: left;
+  border: 1px solid var(--md-color-border);
+}
+
+.md-markdown th {
+  font-weight: 600;
+  background-color: var(--md-color-surface-hover);
+}
+
+.md-markdown hr {
+  margin: var(--md-space-3) 0;
+  border: 0;
+  border-top: 1px solid var(--md-color-border);
+}
+
+.md-markdown img {
+  max-width: 100%;
+}
