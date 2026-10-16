@@ -74,8 +74,10 @@ modules/document/
 视图不直接接触 socket 或 OT 客户端，OT 客户端也不感知 DOM / Router。
 
 页面还内嵌了 Agent 模块的 `AgentSidebar`（`@/modules/agent`）：右下角悬浮按钮打开右侧
-浮层侧栏，向 Agent 提问、由 SSE 流式回复。浮层不参与文档流，与会话协作相互独立，
-接口与实现见 `src/modules/agent/README.md`。
+浮层侧栏，向 Agent 提问、由 SSE 流式回复。浮层不参与文档流，与会话协作相互独立。
+页面通过 `resolve-condition` 属性向侧栏提供提问上下文（当前用户、文档与光标选区），
+由 `AgentSidebar` 随 `create` / `resume` 请求的 `condition` 字段上送；接口与实现见
+`src/modules/agent/README.md`。
 
 ### 连接与鉴权
 

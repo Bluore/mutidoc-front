@@ -20,6 +20,7 @@ import {
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import {
+  AGENT_CONTEXT_LABEL,
   AGENT_EMPTY_HINT,
   AGENT_HISTORY_EMPTY,
   AGENT_HISTORY_LABEL,
@@ -38,7 +39,8 @@ import {
   AGENT_TOOL_RESULT_LABEL,
 } from '../constants'
 import { useAgentStore } from '../stores/agent'
-import type { AgentMessage, AgentMessageSegment, AgentSession } from '../types'
+import type { AgentCondition, AgentMessage, AgentMessageSegment, AgentSession } from '../types'
+import { splitUserContext } from '../user-context'
 
 /**
  * Agent 助手：右下角悬浮按钮 + 右侧浮层侧栏。
@@ -49,6 +51,14 @@ import type { AgentMessage, AgentMessageSegment, AgentSession } from '../types'
  *
  * 侧栏有两个视图：对话（默认）与历史会话；历史视图里选择会话即恢复该会话。
  */
+const props = defineProps<{
+  /**
+   * 宿主页面提供的环境上下文解析器：每次追问时调用一次，返回本轮 `condition`。
+   * 组件本身不感知文档 / 用户，从而保持可复用；缺省时不携带上下文（等价于 `{}`）。
+   */
+  resolveCondition?: () => AgentCondition
+}>()
+
 const agent = useAgentStore()
 
 /** 侧栏展开状态（本地 UI 状态，不进 store） */
@@ -97,6 +107,34 @@ function messageContent(message: AgentMessage): string {
     .map((segment) => segment.text)
     .join('')
 }
+
+/**
+ * 消息的渲染视图：用户消息把正文与「环境上下文」拆开，其余消息原样透传。
+ * 在 computed 里一次性完成字符串截取，模板直接取字段，避免每处重复解析。
+ */
+interface AgentMessageView {
+  key: string
+  message: AgentMessage
+  user: boolean
+  /** 仅用户消息：剥离 `<context>` 块后的正文 */
+  text: string
+  /** 仅用户消息：截取出的上下文（去标签）；为空表示没有 */
+  context: string
+}
+
+const messageViews = computed<AgentMessageView[]>(() =>
+  agent.messages.map((message, index) => {
+    const user = isUser(message)
+    const parsed = user ? splitUserContext(messageContent(message)) : null
+    return {
+      key: `${index}-${message.role}`,
+      message,
+      user,
+      text: parsed ? parsed.text : '',
+      context: parsed ? parsed.context : '',
+    }
+  }),
+)
 
 /** 工具参数 / 结果是原文（通常是 JSON），能解析时格式化，便于阅读；否则原样展示。 */
 function formatToolPayload(raw: string): string {
@@ -161,7 +199,8 @@ async function submit(): Promise<void> {
   if (!canSend.value) return
   const query = draft.value
   draft.value = ''
-  await agent.ask(query)
+  // 携带宿主页面解析出的环境上下文（create / resume 均透传）
+  await agent.ask(query, props.resolveCondition?.())
 }
 
 /** Enter 发送、Shift+Enter 换行；输入法合成期间的回车不发送。 */
@@ -328,53 +367,68 @@ onBeforeUnmount(() => {
             </p>
 
             <div
-              v-for="(message, index) in agent.messages"
-              :key="`${index}-${message.role}`"
+              v-for="(item, index) in messageViews"
+              :key="item.key"
               class="agent-panel__message"
-              :class="{ 'agent-panel__message--user': isUser(message) }"
+              :class="{ 'agent-panel__message--user': item.user }"
             >
               <PxAvatar class="agent-panel__avatar" size="small" shape="circle" bordered>
-                {{ isUser(message) ? '我' : 'AI' }}
+                {{ item.user ? '我' : 'AI' }}
               </PxAvatar>
               <div class="agent-panel__bubble">
-                <span class="agent-panel__role">{{ roleLabel(message) }}</span>
-                <template v-for="(segment, segIndex) in message.segments" :key="segIndex">
-                  <details
-                    v-if="segment.kind === 'reasoning'"
-                    class="agent-panel__reasoning"
-                  >
-                    <summary class="agent-panel__reasoning-summary">
-                      {{ AGENT_REASONING_LABEL }}
+                <span class="agent-panel__role">{{ roleLabel(item.message) }}</span>
+
+                <!-- 用户消息：正文与「环境上下文」拆开，上下文默认折叠 -->
+                <template v-if="item.user">
+                  <details v-if="item.context" class="agent-panel__context">
+                    <summary class="agent-panel__context-summary">
+                      {{ AGENT_CONTEXT_LABEL }}
                     </summary>
-                    <p class="agent-panel__reasoning-text">{{ segment.text }}</p>
+                    <p class="agent-panel__context-text">{{ item.context }}</p>
                   </details>
-                  <details v-else-if="segment.kind === 'tool'" class="agent-panel__tools">
-                    <summary class="agent-panel__tools-summary">
-                      {{
-                        segment.call.name
-                          ? `${AGENT_TOOL_CALLS_LABEL} · ${segment.call.name}`
-                          : AGENT_TOOL_CALLS_LABEL
-                      }}
-                    </summary>
-                    <div class="agent-panel__tool">
-                      <p v-if="segment.call.arguments" class="agent-panel__tool-block">
-                        <span class="agent-panel__tool-label">{{ AGENT_TOOL_ARGS_LABEL }}</span>
-                        <span class="agent-panel__tool-text">{{
-                          formatToolPayload(segment.call.arguments)
-                        }}</span>
-                      </p>
-                      <p v-if="segment.call.result" class="agent-panel__tool-block">
-                        <span class="agent-panel__tool-label">{{ AGENT_TOOL_RESULT_LABEL }}</span>
-                        <span class="agent-panel__tool-text">{{
-                          formatToolPayload(segment.call.result)
-                        }}</span>
-                      </p>
-                    </div>
-                  </details>
-                  <p v-else class="agent-panel__content">{{ segment.text }}</p>
+                  <p v-if="item.text" class="agent-panel__content">{{ item.text }}</p>
+                </template>
+
+                <!-- 助手 / 其它消息：按片段顺序穿插渲染 -->
+                <template v-else>
+                  <template v-for="(segment, segIndex) in item.message.segments" :key="segIndex">
+                    <details
+                      v-if="segment.kind === 'reasoning'"
+                      class="agent-panel__reasoning"
+                    >
+                      <summary class="agent-panel__reasoning-summary">
+                        {{ AGENT_REASONING_LABEL }}
+                      </summary>
+                      <p class="agent-panel__reasoning-text">{{ segment.text }}</p>
+                    </details>
+                    <details v-else-if="segment.kind === 'tool'" class="agent-panel__tools">
+                      <summary class="agent-panel__tools-summary">
+                        {{
+                          segment.call.name
+                            ? `${AGENT_TOOL_CALLS_LABEL} · ${segment.call.name}`
+                            : AGENT_TOOL_CALLS_LABEL
+                        }}
+                      </summary>
+                      <div class="agent-panel__tool">
+                        <p v-if="segment.call.arguments" class="agent-panel__tool-block">
+                          <span class="agent-panel__tool-label">{{ AGENT_TOOL_ARGS_LABEL }}</span>
+                          <span class="agent-panel__tool-text">{{
+                            formatToolPayload(segment.call.arguments)
+                          }}</span>
+                        </p>
+                        <p v-if="segment.call.result" class="agent-panel__tool-block">
+                          <span class="agent-panel__tool-label">{{ AGENT_TOOL_RESULT_LABEL }}</span>
+                          <span class="agent-panel__tool-text">{{
+                            formatToolPayload(segment.call.result)
+                          }}</span>
+                        </p>
+                      </div>
+                    </details>
+                    <p v-else class="agent-panel__content">{{ segment.text }}</p>
+                  </template>
                 </template>
                 <span
-                  v-if="isAnswering(message, index)"
+                  v-if="isAnswering(item.message, index)"
                   class="agent-panel__dots"
                   aria-hidden="true"
                 >
@@ -686,6 +740,27 @@ onBeforeUnmount(() => {
 }
 
 .agent-panel__reasoning-text {
+  margin: var(--md-space-1) 0 0;
+  padding-left: var(--md-space-2);
+  line-height: var(--md-line-height);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  border-left: 2px solid var(--md-color-border);
+}
+
+/* 用户消息里的「环境上下文」：默认折叠，气泡只留用户真正输入的内容 */
+.agent-panel__context {
+  font-size: var(--md-font-size-xs);
+  color: var(--md-color-text-secondary);
+}
+
+.agent-panel__context-summary {
+  color: var(--md-color-text-disabled);
+  cursor: pointer;
+  user-select: none;
+}
+
+.agent-panel__context-text {
   margin: var(--md-space-1) 0 0;
   padding-left: var(--md-space-2);
   line-height: var(--md-line-height);

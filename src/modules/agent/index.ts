@@ -5,6 +5,7 @@
 export { default as AgentSidebar } from './components/AgentSidebar.vue'
 export { useAgentStore } from './stores/agent'
 export type {
+  AgentCondition,
   AgentMessage,
   AgentMessageDelta,
   AgentMessageSegment,

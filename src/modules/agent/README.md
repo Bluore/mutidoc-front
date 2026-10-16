@@ -15,7 +15,8 @@ modules/agent/
 ├── stores/
 │   └── agent.ts            # 会话编排（sessionId / messages / 状态机）
 ├── merge.ts                # 流式增量合并（纯函数，可单测）
-├── types/index.ts          # AgentMessage / AgentMessageSegment / AgentMessageDelta / AgentToolCall / AgentStreamPayload / AgentStatus
+├── user-context.ts         # 用户消息 <context> 块的字符串截取（纯函数，可单测）
+├── types/index.ts          # AgentMessage / AgentMessageSegment / AgentMessageDelta / AgentToolCall / AgentStreamPayload / AgentStatus / AgentCondition
 ├── constants.ts            # 状态文案、角色名、长度上限
 └── index.ts                # 对外出口
 ```
@@ -26,8 +27,8 @@ modules/agent/
 
 | 功能 | 方法 | 路径 | 说明 |
 | --- | --- | --- | --- |
-| 创建会话 | POST | `/agent/v1/session/create` | body `{ query }`，返回 `{ session_id }` |
-| 追问 | POST | `/agent/v1/session/resume` | body `{ query, session_id }`，返回空 data |
+| 创建会话 | POST | `/agent/v1/session/create` | body `{ query, condition }`，返回 `{ session_id }` |
+| 追问 | POST | `/agent/v1/session/resume` | body `{ query, session_id, condition }`，返回空 data |
 | 历史会话列表 | GET | `/agent/v1/session/list` | 返回 `{ sessions: [{ session_id, session_title, user_id }], session_len }` |
 | 订阅事件流 | GET | `/agent/v1/session/stream/{id}` | `text/event-stream`，逐条下发消息增量 |
 
@@ -36,6 +37,21 @@ modules/agent/
 1. 首次提问 → `create` 拿到 `session_id`；之后每次提问 → `resume`。
 2. 提交成功后订阅 `stream/{session_id}`，持续接收事件直到出现终态（`status === 2`）。
 3. 请求携带与其余接口一致的凭证（`Authorization: Bearer <md_token>`）。
+
+### 提问上下文（`condition`）
+
+`create` 与 `resume` 的 `condition` 都是**字符串化的 JSON**（不是嵌套对象），用于携带
+本轮请求的环境上下文；后端把它转成自然语言拼进提问，不影响响应结构。`api/agent.ts`
+的 `createAgentSession` / `resumeAgentSession` 统一做 `JSON.stringify`（传对象会解析失败
+返回 `1044004`），store 与视图只提供 `AgentCondition` 对象。
+
+- 字段（全部可选，缺省即忽略）：`user_id` / `user_name` / `document_id` /
+  `document_name` / `cursor_anchor` / `cursor_select` / `timestamp`（毫秒）/
+  `time_zone` / `language`。
+- `user_ip` 由后端从转发头解析后回填，前端**不传**；`condition` 缺省时发送 `"{}"`，
+  行为与旧版一致。
+- 上下文由宿主页面通过 `AgentSidebar` 的 `resolveCondition` 属性提供（每次提问即时
+  求值），组件本身不感知文档 / 用户，保持可复用。
 
 ### 查找与恢复历史
 
@@ -123,6 +139,9 @@ View ──调用──▶ Store(action: ask/stop/reset) ──▶ api/*.ts ─�
   事件流并清空会话。
 - 消息列表自适应剩余高度并自动滚到底部；输入框支持 Enter 发送、Shift+Enter 换行，
   输入法合成期间的回车不发送。
+- 用户气泡会把服务端回显的 `<context>…</context>` 环境上下文**字符串截取**出来：
+  正文只展示用户真正输入的内容，截取出的上下文放进一个「环境上下文」折叠区
+  （默认收起）；解析见 `user-context.ts` 的 `splitUserContext`。
 - 助手气泡内按 `segments` 顺序**穿插**渲染：每段 `reasoning` 是一个「思考过程」折叠区、
   每段 `tool` 是一个「工具调用 · 工具名」折叠区（展开后显示参数 / 返回结果，能解析为 JSON 时
   格式化），`content` 段直接作为正文铺开。因一次助手回合只渲染这一个气泡，正文出现前显示

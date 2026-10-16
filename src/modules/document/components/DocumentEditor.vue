@@ -243,7 +243,22 @@ function getText(): string {
   return view?.state.doc.toString() ?? props.modelValue
 }
 
-defineExpose({ getText })
+/**
+ * 读取当前选区与选中文本（编辑器码元坐标），供上层组装 Agent 环境上下文
+ * （`cursor_anchor` / `cursor_select`）。无编辑器时返回空选区。
+ */
+function getSelection(): { anchor: number; head: number; text: string } {
+  const editor = view
+  if (!editor) return { anchor: 0, head: 0, text: '' }
+  const selection = editor.state.selection.main
+  return {
+    anchor: selection.anchor,
+    head: selection.head,
+    text: editor.state.sliceDoc(selection.from, selection.to),
+  }
+}
+
+defineExpose({ getText, getSelection })
 
 /**
  * 计算把 `oldText` 变成 `newText` 的最小替换区间，交给 CodeMirror 应用。

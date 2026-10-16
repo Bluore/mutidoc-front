@@ -89,3 +89,34 @@ export interface AgentSession {
   /** 会话归属用户 ID */
   userId: string
 }
+
+/**
+ * 提问时随请求携带的**环境上下文**（`create` / `resume` 接口的 `condition` 字段）。
+ *
+ * 后端会把它转成自然语言拼进本轮提问，不影响响应结构。字段全部可选，缺省即忽略；
+ * `user_ip` 由后端从 `X-Forwarded-For` / `X-Real-IP` / RemoteAddr 解析后回填，前端
+ * **不要**传（传了也会被覆盖）。
+ *
+ * 注意：接口要求的 `condition` 是**字符串化的 JSON**，序列化由 API 层
+ * （`createAgentSession` / `resumeAgentSession`）统一完成，视图 / store 只提供这个对象。
+ */
+export interface AgentCondition {
+  /** 用户 ID */
+  user_id?: string
+  /** 用户名 */
+  user_name?: string
+  /** 当前文档 ID */
+  document_id?: string
+  /** 当前文档名称 */
+  document_name?: string
+  /** 光标锚点位置 */
+  cursor_anchor?: string
+  /** 当前选中的文本 */
+  cursor_select?: string
+  /** 当前时间戳（毫秒，建议 `Date.now()`） */
+  timestamp?: number
+  /** IANA 时区名，如 Asia/Shanghai */
+  time_zone?: string
+  /** 界面语言，如 zh-CN */
+  language?: string
+}

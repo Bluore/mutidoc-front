@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { AgentSidebar } from '@/modules/agent'
+import type { AgentCondition } from '@/modules/agent'
 import { useUserStore } from '@/modules/user'
 
 import CollaborationPanel from '../components/CollaborationPanel.vue'
@@ -16,6 +17,7 @@ import {
 } from '../constants'
 import { useCollaborationStore } from '../stores/collaboration'
 import { useDocumentStore } from '../stores/document'
+import { codeUnitsToByteOffset } from '../ot/ot'
 
 /**
  * 协作编辑页：左侧纯文本编辑器，右侧操作面板。
@@ -43,6 +45,30 @@ const disconnected = computed(
 
 /** 编辑器实例：用于把「读取当前全文」的能力交给 store 定时采样。 */
 const editorRef = ref<InstanceType<typeof DocumentEditor> | null>(null)
+
+/**
+ * 组装追问时携带的环境上下文（Agent `resume` 接口的 `condition`）。
+ *
+ * 在每次提问时**即时读取**，因此光标 / 选区与时间戳都是本轮最新值；`user_ip` 由后端
+ * 补充，这里不传。字段缺省不影响后端（可选）。
+ */
+function resolveAgentCondition(): AgentCondition {
+  const selection = editorRef.value?.getSelection()
+  const text = editorRef.value?.getText() ?? ''
+  // 与文档模块一致，位置统一用 UTF-8 字节偏移（编辑器给出的是码元坐标）。
+  const anchor = selection ? codeUnitsToByteOffset(text, selection.anchor) : 0
+  return {
+    user_id: collaboration.selfUserId || userStore.profile?.id || '',
+    user_name: userStore.displayName,
+    document_id: documentStore.detail?.id ?? props.id,
+    document_name: title.value,
+    cursor_anchor: String(anchor),
+    cursor_select: selection?.text ?? '',
+    timestamp: Date.now(),
+    time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    language: navigator.language,
+  }
+}
 
 onMounted(() => {
   // 先登记采样源，再建连：store 的定时器只比较文本框内容与本地副本，不依赖输入事件。
@@ -130,7 +156,7 @@ function handleExit(): void {
       />
     </div>
 
-    <AgentSidebar />
+    <AgentSidebar :resolve-condition="resolveAgentCondition" />
   </section>
 </template>
 

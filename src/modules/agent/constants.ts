@@ -46,6 +46,9 @@ export const AGENT_THINKING_HINT = 'Agent 正在思考…'
 /** 思考过程折叠区标题 */
 export const AGENT_REASONING_LABEL = '思考过程'
 
+/** 用户消息里「环境上下文」折叠区标题 */
+export const AGENT_CONTEXT_LABEL = '环境上下文'
+
 /** 工具调用折叠区标题 */
 export const AGENT_TOOL_CALLS_LABEL = '工具调用'
 

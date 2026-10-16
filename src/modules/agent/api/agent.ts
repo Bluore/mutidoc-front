@@ -3,6 +3,7 @@ import { env } from '@/config/env'
 import { createSseParser } from '@/utils/sse'
 
 import type {
+  AgentCondition,
   AgentMessageDelta,
   AgentSession,
   AgentStreamPayload,
@@ -17,22 +18,40 @@ import type {
  *   `fetch` + `ReadableStream` 手动解析 SSE（同时便于用 `AbortSignal` 取消订阅）。
  */
 
-/** 创建 Agent 会话：POST /agent/v1/session/create */
-export async function createAgentSession(query: string): Promise<string> {
+/**
+ * 创建 Agent 会话：POST /agent/v1/session/create
+ *
+ * `condition` 同 `resume`：**字符串化的 JSON** 环境上下文（见 `AgentCondition`），
+ * 这里统一 `JSON.stringify`；缺省发送 `"{}"`。
+ */
+export async function createAgentSession(
+  query: string,
+  condition?: AgentCondition,
+): Promise<string> {
   const data = await request<{ session_id: string }>({
     url: '/agent/v1/session/create',
     method: 'post',
-    data: { query },
+    data: { query, condition: JSON.stringify(condition ?? {}) },
   })
   return data.session_id
 }
 
-/** 在既有会话中追问：POST /agent/v1/session/resume */
-export function resumeAgentSession(sessionId: string, query: string): Promise<void> {
+/**
+ * 在既有会话中追问：POST /agent/v1/session/resume
+ *
+ * `condition` 是本次请求的**环境上下文**（见 `AgentCondition`），接口要求它是
+ * **字符串化的 JSON**，因此这里统一做一次 `JSON.stringify`——直接传对象会让后端
+ * 解析失败并返回 `1044004`。缺省时发送 `"{}"`，行为与旧版一致。
+ */
+export function resumeAgentSession(
+  sessionId: string,
+  query: string,
+  condition?: AgentCondition,
+): Promise<void> {
   return request<void>({
     url: '/agent/v1/session/resume',
     method: 'post',
-    data: { query, session_id: sessionId },
+    data: { query, session_id: sessionId, condition: JSON.stringify(condition ?? {}) },
   })
 }
 

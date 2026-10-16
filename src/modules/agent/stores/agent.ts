@@ -12,6 +12,7 @@ import {
 import { AGENT_STREAM_STATUS_DONE } from '../constants'
 import { mergeDelta } from '../merge'
 import type {
+  AgentCondition,
   AgentMessage,
   AgentMessageDelta,
   AgentSession,
@@ -154,8 +155,12 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  /** 提交一次提问：首次建会话，之后在既有会话里追问，随后订阅事件流。 */
-  async function ask(rawQuery: string): Promise<void> {
+  /**
+   * 提交一次提问：首次建会话，之后在既有会话里追问，随后订阅事件流。
+   *
+   * @param condition 本轮携带的环境上下文；`create` 与 `resume` 都会透传。
+   */
+  async function ask(rawQuery: string, condition?: AgentCondition): Promise<void> {
     const query = rawQuery.trim()
     if (!query || busy.value) return
 
@@ -169,9 +174,9 @@ export const useAgentStore = defineStore('agent', () => {
 
     try {
       if (sessionId.value) {
-        await resumeAgentSession(sessionId.value, query)
+        await resumeAgentSession(sessionId.value, query, condition)
       } else {
-        sessionId.value = await createAgentSession(query)
+        sessionId.value = await createAgentSession(query, condition)
       }
     } catch (e) {
       if (current !== sessionSeq) return
