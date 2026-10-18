@@ -16,18 +16,21 @@ modules/document/
 │   ├── DocumentEditor.vue      # 纯文本编辑器（CodeMirror 6，编辑 + 远端光标渲染）
 │   ├── DocumentTitleField.vue  # 文档标题展示 / 编辑（纯展示 + 事件上抛）
 │   ├── CollaborationPanel.vue  # 右侧操作面板（标题 / 信息 / 状态 / 在线用户 / 日志 / 退出）
-│   └── GrantLinkDialog.vue     # 授权链接分享弹窗（生成 / 复用 + 复制）
+│   ├── GrantLinkDialog.vue     # 授权链接分享弹窗（生成 / 复用 + 复制）
+│   └── SnapshotDialog.vue      # 发布快照弹窗（发布 + 短链复制 / 预览）
 ├── ot/
 │   ├── ot.ts                   # OT 核心（retain / insert / delete + transform）
 │   ├── ot-client.ts            # OT 客户端状态机（无 I/O、无 DOM）
 │   └── connection.ts           # WebSocket 传输层（回调式）
 ├── stores/
-│   ├── document.ts             # 列表分页 + 详情
+│   ├── document.ts             # 列表分页 + 详情 + 授权链接 / 快照发布
+│   ├── snapshot.ts             # 快照公开页：按 snapshot_id 拉取只读正文
 │   └── collaboration.ts        # 协作会话编排（OT 客户端 + 传输 + 响应式状态）
 ├── views/
 │   ├── WorkbenchView.vue           # 工作台（主页）
 │   ├── DocumentDetailView.vue      # 文档详情
-│   └── CollaborationEditView.vue   # 协作编辑（左编辑器 + 右侧栏）
+│   ├── CollaborationEditView.vue   # 协作编辑（左编辑器 + 右侧栏）
+│   └── SnapshotView.vue            # 快照公开页（只读，无需登录）
 ├── types/index.ts
 ├── constants.ts
 ├── routes.ts
@@ -43,6 +46,8 @@ modules/document/
 | 删除文档 | DELETE | `/doc/v1/document` | body 传 `document_id`，仅归属者可删 |
 | 获取文档元信息 | GET | `/doc/v1/document/info` | 返回 `{ document_info }` |
 | 生成授权链接 | GET | `/doc/v1/document/grant` | 返回 `{ link }`，仅归属者，重复调用复用同一链接 |
+| 发布文档快照 | POST | `/doc/v1/document/snapshot` | body 传 `document_id`，返回 `{ snapshot_id, short_link }`，仅归属者 |
+| 读取快照正文 | GET | `/doc/v1/document/snapshot/content` | query 传 `snapshot_id`，**无需登录** |
 | 协作编辑 | WS | `/edit/v1/document?document_id=` | 升级为 WebSocket，走 OT 协议 |
 
 > `Document` **不含正文**；正文只在 WebSocket 协作连接中下发。
@@ -67,6 +72,27 @@ modules/document/
   `documents/:id/edit`。
 - 复制能力封装在 `src/utils/clipboard.ts`（安全上下文用 Clipboard API，否则退回
   `execCommand`）。
+
+## 文档快照发布（只读分享）
+
+文档详情页右上角「发布快照」打开 `components/SnapshotDialog.vue`：
+
+1. 点击弹窗内的「立即发布」才真正调用 `POST /doc/v1/document/snapshot`（打开弹窗不自动发布，
+   避免误操作产生无用快照），由 `stores/document.ts` 的 `publishSnapshot(documentId)` 发起；
+2. 成功后在弹窗内展示 `data.short_link`，支持一键复制与「预览快照」；
+3. **每次发布都会生成新的快照与短链**，快照与 `documents` 完全独立，之后继续编辑原文档不影响
+   已发布内容；短链默认有效期 7 天（接口不传过期时间，由 link 服务决定）。
+
+短链 `/s/<linkId>` 由 link 服务 302 到 `/public_documents/<snapshot_id>`，对应本模块的公开页
+`views/SnapshotView.vue`（路由 `document-snapshot`，`meta.layout = 'blank'`，**不需要登录**）。
+该页由 `stores/snapshot.ts` 调用 `GET /doc/v1/document/snapshot/content?snapshot_id=...`
+拉取标题、正文、版本与发布时间，只做只读渲染：
+
+- 快照不存在（`code = 1024004`）是终态，展示「快照不存在」，不提供重试；
+- 其他错误（网络 / 服务端）展示错误信息与「重新加载」；
+- 正文为空时展示占位文案，不渲染空白区域。
+
+> 发布不是幂等操作：没有「覆盖旧快照」的接口，重新发布即产生新链接，旧链接在有效期内仍可用。
 
 ## 协作编辑（WebSocket）
 

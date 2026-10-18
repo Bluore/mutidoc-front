@@ -9,9 +9,10 @@ import {
   fetchDocumentInfo as fetchDocumentInfoApi,
   fetchDocumentList,
   fetchGrantLink as fetchGrantLinkApi,
+  publishDocumentSnapshot as publishDocumentSnapshotApi,
 } from '../api/document'
 import { DOCUMENT_PAGE_SIZE } from '../constants'
-import type { DocumentItem, DocumentSort } from '../types'
+import type { DocumentItem, DocumentSort, SnapshotPublishResult } from '../types'
 
 /**
  * 文档 store：管理列表、分页、筛选与排序。
@@ -36,6 +37,10 @@ export const useDocumentStore = defineStore('document', () => {
   const grantLink = ref<string | null>(null)
   const grantLinkLoading = ref(false)
   const grantLinkError = ref<string | null>(null)
+  /** 最近一次发布的快照结果；未发布或失败时为 null */
+  const snapshot = ref<SnapshotPublishResult | null>(null)
+  const snapshotPublishing = ref(false)
+  const snapshotError = ref<string | null>(null)
 
   // getters
   /** 当前页数据的前端筛选 + 排序 */
@@ -140,6 +145,32 @@ export const useDocumentStore = defineStore('document', () => {
     grantLinkError.value = null
   }
 
+  /**
+   * 发布文档快照：成功后保存本次结果（快照 ID + 短链）。
+   * 失败会向上抛出，由弹窗内联展示错误并提供重试。
+   */
+  async function publishSnapshot(documentId: string): Promise<SnapshotPublishResult> {
+    snapshotPublishing.value = true
+    snapshotError.value = null
+    snapshot.value = null
+    try {
+      const result = await publishDocumentSnapshotApi(documentId)
+      snapshot.value = result
+      return result
+    } catch (e) {
+      snapshotError.value = getErrorMessage(e, '快照发布失败')
+      throw e
+    } finally {
+      snapshotPublishing.value = false
+    }
+  }
+
+  /** 关闭弹窗时清空发布结果与错误，下次打开需要重新发布 */
+  function resetSnapshot(): void {
+    snapshot.value = null
+    snapshotError.value = null
+  }
+
   async function changePage(targetPage: number): Promise<void> {
     await loadList(targetPage)
   }
@@ -166,6 +197,9 @@ export const useDocumentStore = defineStore('document', () => {
     grantLink,
     grantLinkLoading,
     grantLinkError,
+    snapshot,
+    snapshotPublishing,
+    snapshotError,
     filteredList,
     totalPages,
     isEmpty,
@@ -178,6 +212,8 @@ export const useDocumentStore = defineStore('document', () => {
     loadDetail,
     generateGrantLink,
     resetGrantLink,
+    publishSnapshot,
+    resetSnapshot,
     changePage,
     changePageSize,
   }

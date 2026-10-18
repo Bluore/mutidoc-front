@@ -1,6 +1,8 @@
+import { ApiError } from '@/api'
 import type { PageResult } from '@/api'
 
-import type { DocumentItem } from '../types'
+import { DOCUMENT_NOT_FOUND_CODE, DOCUMENT_SNAPSHOT_NOT_FOUND_CODE } from '../constants'
+import type { DocumentItem, DocumentSnapshot, SnapshotPublishResult } from '../types'
 
 /**
  * 模块内置 mock：内存中的文档列表。
@@ -90,6 +92,57 @@ export async function mockFetchDocumentInfo(id: string): Promise<DocumentItem> {
   const item = db.find((doc) => doc.id === id)
   if (!item) throw new Error('文档不存在')
   return { ...item }
+}
+
+/**
+ * 快照按 snapshot_id 存放，模拟 `public_documents` 表：发布后与文档列表互相独立。
+ * 每次发布都会写入一条新记录，不复用旧快照。
+ */
+const snapshots = new Map<string, DocumentSnapshot>()
+
+let snapshotSequence = 0
+
+/** 发布快照：mock 没有正文存储，用一段固定说明代替「发布时的正文」 */
+export async function mockPublishDocumentSnapshot(
+  documentId: string,
+): Promise<SnapshotPublishResult> {
+  await delay(300)
+  const doc = db.find((item) => item.id === documentId)
+  if (!doc) throw new ApiError('文档不存在', DOCUMENT_NOT_FOUND_CODE)
+
+  snapshotSequence += 1
+  const snapshotId = `snapshot-mock-${snapshotSequence}`
+  const timestamp = Math.floor(Date.now() / 1000)
+  snapshots.set(snapshotId, {
+    id: snapshotId,
+    owner_id: doc.owner_id,
+    summary: doc.summary,
+    content: [
+      `# ${doc.summary.trim() || '未命名文档'}`,
+      '',
+      '这是一份只读文档快照（Mock 数据）。',
+      '',
+      '真实后端会把「数据库正文 + redis 中尚未落库的协作变更」合并后写入快照；',
+      '快照发布后继续编辑原文档不会影响这里的内容。',
+    ].join('\n'),
+    version: 1,
+    create_at: timestamp,
+    update_at: timestamp,
+  })
+
+  // mock 环境没有 link 服务，直接给出可访问的公开页地址，便于本地走通完整流程
+  return {
+    snapshot_id: snapshotId,
+    short_link: `${window.location.origin}/public_documents/${snapshotId}`,
+  }
+}
+
+/** 读取快照正文：快照不存在时抛出与后端一致的业务错误码 */
+export async function mockFetchSnapshotContent(snapshotId: string): Promise<DocumentSnapshot> {
+  await delay(300)
+  const snapshot = snapshots.get(snapshotId)
+  if (!snapshot) throw new ApiError('文档快照不存在', DOCUMENT_SNAPSHOT_NOT_FOUND_CODE)
+  return { ...snapshot }
 }
 
 /** 授权链接按 document_id 复用，与后端「同文档重复调用复用同一链接」的语义一致 */

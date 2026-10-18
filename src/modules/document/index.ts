@@ -9,13 +9,17 @@ export type {
   CollaborationUser,
   CreateDocumentResult,
   DocumentItem,
+  DocumentSnapshot,
   DocumentSort,
   GrantLinkResult,
   RemoteCursor,
+  SnapshotPublishResult,
 } from './types'
 export {
   DOCUMENT_PAGE_SIZE,
   DOCUMENT_PAGE_SIZE_OPTIONS,
+  DOCUMENT_SNAPSHOT_EMPTY_TEXT,
+  DOCUMENT_SNAPSHOT_LINK_DAYS,
   DOCUMENT_SORT_OPTIONS,
   DOCUMENT_SUMMARY_FALLBACK,
 } from './constants'

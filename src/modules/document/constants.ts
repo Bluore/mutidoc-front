@@ -15,6 +15,18 @@ export const DOCUMENT_SORT_OPTIONS: ReadonlyArray<{ value: DocumentSort; label: 
   { value: 'update', label: '按更新时间' },
 ]
 
+/** 文档不存在（document-api 业务错误码，HTTP 200 + code） */
+export const DOCUMENT_NOT_FOUND_CODE = 1024002
+
+/** 快照不存在（document-api 业务错误码，HTTP 200 + code） */
+export const DOCUMENT_SNAPSHOT_NOT_FOUND_CODE = 1024004
+
+/** 快照短链默认有效期（天）：发布接口不传过期时间，由 link 服务使用默认值 */
+export const DOCUMENT_SNAPSHOT_LINK_DAYS = 7
+
+/** 快照正文为空时的展示文案 */
+export const DOCUMENT_SNAPSHOT_EMPTY_TEXT = '该快照发布时正文为空。'
+
 /** 协作连接状态在界面上的展示文案与标签主题 */
 export const COLLABORATION_STATUS_META: Readonly<
   Record<

@@ -26,6 +26,33 @@ export interface GrantLinkResult {
   link: string
 }
 
+/**
+ * 发布文档快照返回（POST /doc/v1/document/snapshot）。
+ * `short_link` 形如 `<BaseUrl>/s/<linkId>`，默认有效期 7 天；
+ * 每次发布都会生成新的 `snapshot_id` 与短链，不复用旧快照。
+ */
+export interface SnapshotPublishResult {
+  snapshot_id: string
+  short_link: string
+}
+
+/**
+ * 快照正文（GET /doc/v1/document/snapshot/content）。
+ * 快照与 `documents` 完全独立：标题、正文、版本号都是发布时的冻结值。
+ */
+export interface DocumentSnapshot {
+  id: string
+  owner_id: string
+  summary: string
+  content: string
+  /** 发布时的文档版本号 */
+  version: number
+  /** 创建时间：秒级 Unix 时间戳 */
+  create_at: number
+  /** 更新时间：秒级 Unix 时间戳 */
+  update_at: number
+}
+
 /** 列表排序方式（后端固定按 create_at 倒序，这里是当前页的前端排序） */
 export type DocumentSort = 'create' | 'update'
 

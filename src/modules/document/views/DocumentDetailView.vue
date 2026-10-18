@@ -9,7 +9,13 @@ import {
   Spin as PxSpin,
   Tag as PxTag,
 } from '@pixelium/web-vue/es'
-import { IconAngleLeft, IconLink, IconRefresh, IconShare } from '@pixelium/web-vue/icon-hn/es'
+import {
+  IconAngleLeft,
+  IconLink,
+  IconRefresh,
+  IconShare,
+  IconUpload,
+} from '@pixelium/web-vue/icon-hn/es'
 import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -17,6 +23,7 @@ import { getErrorMessage } from '@/utils/error'
 import { formatUnixSeconds } from '@/utils/date'
 
 import GrantLinkDialog from '../components/GrantLinkDialog.vue'
+import SnapshotDialog from '../components/SnapshotDialog.vue'
 import { DOCUMENT_SUMMARY_FALLBACK } from '../constants'
 import { useDocumentStore } from '../stores/document'
 
@@ -26,6 +33,7 @@ const props = defineProps<{ id: string }>()
 const router = useRouter()
 const documentStore = useDocumentStore()
 const grantVisible = ref(false)
+const snapshotVisible = ref(false)
 
 const editNotes = [
   '浏览器无法为 WebSocket 设置 Authorization 头，因此按后端约定把 token 放进首帧 init 消息完成鉴权。',
@@ -74,6 +82,12 @@ async function handleRemove(): Promise<void> {
       </PxButton>
 
       <div class="document-detail__actions">
+        <PxButton variant="outline" native-type="button" @click="snapshotVisible = true">
+          <template #icon>
+            <IconUpload />
+          </template>
+          发布快照
+        </PxButton>
         <PxButton variant="outline" native-type="button" @click="grantVisible = true">
           <template #icon>
             <IconLink />
@@ -166,6 +180,7 @@ async function handleRemove(): Promise<void> {
     </PxSpin>
 
     <GrantLinkDialog v-model:visible="grantVisible" :document-id="props.id" />
+    <SnapshotDialog v-model:visible="snapshotVisible" :document-id="props.id" />
   </section>
 </template>
 

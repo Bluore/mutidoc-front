@@ -2,18 +2,25 @@ import { request } from '@/api'
 import type { PageResult } from '@/api'
 import { env } from '@/config/env'
 
-import type { DocumentItem, GrantLinkResult } from '../types'
+import type {
+  DocumentItem,
+  DocumentSnapshot,
+  GrantLinkResult,
+  SnapshotPublishResult,
+} from '../types'
 import {
   mockCreateDocument,
   mockDeleteDocument,
   mockFetchDocumentInfo,
   mockFetchDocumentList,
   mockFetchGrantLink,
+  mockFetchSnapshotContent,
+  mockPublishDocumentSnapshot,
 } from './mock'
 
 /**
  * 文档模块 API 层。
- * 注意：文档服务接口全部需要 JWT，token 由全局 request() 自动注入。
+ * 注意：除快照正文（公开读取）外，文档服务接口都需要 JWT，token 由全局 request() 自动注入。
  */
 
 /** 后端列表原始结构：documents_info + documents_len */
@@ -97,4 +104,37 @@ export async function fetchGrantLink(documentId: string): Promise<string> {
     params: { document_id: documentId },
   })
   return data.link
+}
+
+/**
+ * 发布文档快照：POST /doc/v1/document/snapshot
+ *
+ * 仅文档归属者可调用；把文档**当前内容**冻结成一份只读快照，返回快照 ID 与短链。
+ * 每次调用都会生成新的快照与短链，不会复用旧快照。
+ */
+export async function publishDocumentSnapshot(
+  documentId: string,
+): Promise<SnapshotPublishResult> {
+  if (env.useMock) return mockPublishDocumentSnapshot(documentId)
+
+  return request<SnapshotPublishResult>({
+    url: '/doc/v1/document/snapshot',
+    method: 'post',
+    data: { document_id: documentId },
+  })
+}
+
+/**
+ * 读取快照正文：GET /doc/v1/document/snapshot/content
+ *
+ * 公开接口，无需登录，供短链落地页（`/public_documents/:snapshotId`）渲染。
+ */
+export async function fetchSnapshotContent(snapshotId: string): Promise<DocumentSnapshot> {
+  if (env.useMock) return mockFetchSnapshotContent(snapshotId)
+
+  return request<DocumentSnapshot>({
+    url: '/doc/v1/document/snapshot/content',
+    method: 'get',
+    params: { snapshot_id: snapshotId },
+  })
 }
