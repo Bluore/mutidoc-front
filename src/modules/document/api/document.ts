@@ -3,6 +3,7 @@ import type { PageResult } from '@/api'
 import { env } from '@/config/env'
 
 import type {
+  DocumentContent,
   DocumentItem,
   DocumentSnapshot,
   GrantLinkResult,
@@ -11,6 +12,7 @@ import type {
 import {
   mockCreateDocument,
   mockDeleteDocument,
+  mockFetchDocumentContent,
   mockFetchDocumentInfo,
   mockFetchDocumentList,
   mockFetchGrantLink,
@@ -87,6 +89,22 @@ export async function fetchDocumentInfo(documentId: string): Promise<DocumentIte
     params: { document_id: documentId },
   })
   return data.document_info
+}
+
+/**
+ * 获取文档正文：GET /doc/v1/document/content
+ *
+ * 返回数据库中的正文、标题与当前版本号。仅归属者 / 被授权者可读；
+ * 协作连接中尚未落库的变更不会出现在这里，实时正文以 WebSocket 的 init 消息为准。
+ */
+export async function fetchDocumentContent(documentId: string): Promise<DocumentContent> {
+  if (env.useMock) return mockFetchDocumentContent(documentId)
+
+  return request<DocumentContent>({
+    url: '/doc/v1/document/content',
+    method: 'get',
+    params: { document_id: documentId },
+  })
 }
 
 /**

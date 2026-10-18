@@ -1,6 +1,7 @@
 /**
  * 文档实体（对应 docs/document-api.md 的 Document）。
- * 注意：正文不在这里，正文只在 WebSocket 协作连接中下发。
+ * 注意：列表 / 元信息接口不返回正文，正文需另调 `GET /doc/v1/document/content`；
+ * 协作编辑时的实时正文由 WebSocket 的 init 消息下发。
  */
 export interface DocumentItem {
   id: string
@@ -10,6 +11,18 @@ export interface DocumentItem {
   create_at: number
   /** 更新时间：秒级 Unix 时间戳 */
   update_at: number
+}
+
+/**
+ * 文档正文（GET /doc/v1/document/content）。
+ *
+ * 返回已落库的正文与标题；`version` 是当前文档版本号，
+ * 尚未落库的协作变更可能还未体现在这里。
+ */
+export interface DocumentContent {
+  content: string
+  summary: string
+  version: number
 }
 
 /** 创建文档返回 */

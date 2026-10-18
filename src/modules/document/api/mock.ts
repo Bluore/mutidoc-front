@@ -1,12 +1,21 @@
 import { ApiError } from '@/api'
 import type { PageResult } from '@/api'
 
-import { DOCUMENT_NOT_FOUND_CODE, DOCUMENT_SNAPSHOT_NOT_FOUND_CODE } from '../constants'
-import type { DocumentItem, DocumentSnapshot, SnapshotPublishResult } from '../types'
+import {
+  DOCUMENT_NOT_FOUND_CODE,
+  DOCUMENT_SNAPSHOT_NOT_FOUND_CODE,
+  DOCUMENT_SUMMARY_FALLBACK,
+} from '../constants'
+import type {
+  DocumentContent,
+  DocumentItem,
+  DocumentSnapshot,
+  SnapshotPublishResult,
+} from '../types'
 
 /**
  * 模块内置 mock：内存中的文档列表。
- * 真实后端正文不落库（初始 "helloworld"），这里只模拟元信息。
+ * 真实后端正文由 `GET /doc/v1/document/content` 返回，这里按标题生成一段 Markdown 代替。
  */
 const DELAY = 400
 const delay = (ms = DELAY) => new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -92,6 +101,29 @@ export async function mockFetchDocumentInfo(id: string): Promise<DocumentItem> {
   const item = db.find((doc) => doc.id === id)
   if (!item) throw new Error('文档不存在')
   return { ...item }
+}
+
+/**
+ * 获取文档正文：mock 没有数据库正文，按标题生成一段 Markdown 代替；
+ * 真实后端返回的是「数据库正文 + 已落库版本」。
+ */
+export async function mockFetchDocumentContent(id: string): Promise<DocumentContent> {
+  await delay(300)
+  const item = db.find((doc) => doc.id === id)
+  if (!item) throw new ApiError('文档不存在', DOCUMENT_NOT_FOUND_CODE)
+
+  const title = item.summary.trim() || DOCUMENT_SUMMARY_FALLBACK
+  const content = [
+    `# ${title}`,
+    '',
+    '这是 Mock 环境返回的文档正文（Markdown 格式）。',
+    '',
+    '- 真实后端会返回已落库的正文与版本号；',
+    '- 进入协作编辑页后，正文改由 WebSocket 的 init 消息下发；',
+    '- 协作中尚未落库的变更不会立即反映在这里。',
+  ].join('\n')
+
+  return { content, summary: item.summary, version: 1 }
 }
 
 /**

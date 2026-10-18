@@ -3,7 +3,6 @@ import {
   Alert as PxAlert,
   Button as PxButton,
   Card as PxCard,
-  Divider as PxDivider,
   Message,
   Popconfirm as PxPopconfirm,
   Spin as PxSpin,
@@ -16,18 +15,19 @@ import {
   IconShare,
   IconUpload,
 } from '@pixelium/web-vue/icon-hn/es'
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { getErrorMessage } from '@/utils/error'
+import MarkdownText from '@/components/MarkdownText.vue'
 import { formatUnixSeconds } from '@/utils/date'
+import { getErrorMessage } from '@/utils/error'
 
 import GrantLinkDialog from '../components/GrantLinkDialog.vue'
 import SnapshotDialog from '../components/SnapshotDialog.vue'
-import { DOCUMENT_SUMMARY_FALLBACK } from '../constants'
+import { DOCUMENT_CONTENT_EMPTY_TEXT, DOCUMENT_SUMMARY_FALLBACK } from '../constants'
 import { useDocumentStore } from '../stores/document'
 
-/** 文档详情：展示元信息，并说明协作编辑（WebSocket）的当前状态 */
+/** 文档详情：展示元信息与当前正文（GET /doc/v1/document/content），并提供协作编辑入口 */
 const props = defineProps<{ id: string }>()
 
 const router = useRouter()
@@ -35,22 +35,22 @@ const documentStore = useDocumentStore()
 const grantVisible = ref(false)
 const snapshotVisible = ref(false)
 
-const editNotes = [
-  '浏览器无法为 WebSocket 设置 Authorization 头，因此按后端约定把 token 放进首帧 init 消息完成鉴权。',
-  '正文不通过 REST 返回，进入编辑页后由 WebSocket 的 init 消息下发，并以 OT 算子实时同步。',
-  '后端当前把正文保存在进程内存中，重启即丢失，且暂不支持多副本水平扩展。',
-] as const
+const content = computed(() => documentStore.content)
+const hasContent = computed(() => (content.value?.content ?? '').length > 0)
 
-onMounted(() => {
+onMounted(reload)
+
+watch(() => props.id, reload)
+
+/** 元信息与正文分别请求：正文失败不影响文档信息展示 */
+function reload(): void {
   void documentStore.loadDetail(props.id)
-})
+  void documentStore.loadContent(props.id)
+}
 
-watch(
-  () => props.id,
-  (id) => {
-    void documentStore.loadDetail(id)
-  },
-)
+function reloadContent(): void {
+  void documentStore.loadContent(props.id)
+}
 
 function backToList(): void {
   void router.push({ name: 'document-list' })
@@ -97,8 +97,8 @@ async function handleRemove(): Promise<void> {
         <PxButton
           variant="outline"
           native-type="button"
-          :loading="documentStore.detailLoading"
-          @click="documentStore.loadDetail(props.id)"
+          :loading="documentStore.detailLoading || documentStore.contentLoading"
+          @click="reload"
         >
           <template #icon>
             <IconRefresh />
@@ -155,29 +155,48 @@ async function handleRemove(): Promise<void> {
           </div>
         </dl>
       </PxCard>
+    </PxSpin>
 
-      <PxCard class="document-detail__card" shape="rect" :bordered="true" title="协作编辑">
-        <ul class="document-detail__list">
-          <li v-for="item in editNotes" :key="item" class="document-detail__list-item">
-            {{ item }}
-          </li>
-        </ul>
+    <PxCard class="document-detail__card" shape="rect" :bordered="true">
+      <template #header>
+        <div class="document-detail__card-header">
+          <h2 class="document-detail__card-title">文档正文</h2>
+          <div class="document-detail__card-tools">
+            <PxTag v-if="content" size="small" variant="outline" theme="info">
+              版本 v{{ content.version }}
+            </PxTag>
+            <PxButton variant="outline" size="small" native-type="button" @click="enterEdit">
+              <template #icon>
+                <IconShare />
+              </template>
+              进入协作编辑
+            </PxButton>
+          </div>
+        </div>
+      </template>
 
-        <PxDivider :margin="16" />
-
-        <div class="document-detail__editor-placeholder">
-          <p class="document-detail__editor-hint">
-            进入后左侧为纯文本编辑器，右侧为操作面板（在线编辑人、连接状态、退出编辑等）。
-          </p>
-          <PxButton native-type="button" @click="enterEdit">
+      <PxAlert
+        v-if="documentStore.contentError"
+        type="error"
+        :title="documentStore.contentError"
+      >
+        <div class="document-detail__content-error">
+          <PxButton size="small" native-type="button" @click="reloadContent">
             <template #icon>
-              <IconShare />
+              <IconRefresh />
             </template>
-            进入协作编辑
+            重新加载
           </PxButton>
         </div>
-      </PxCard>
-    </PxSpin>
+      </PxAlert>
+
+      <PxSpin v-else :loading="documentStore.contentLoading">
+        <MarkdownText v-if="hasContent" :source="content?.content ?? ''" />
+        <p v-else-if="content" class="document-detail__content-empty">
+          {{ DOCUMENT_CONTENT_EMPTY_TEXT }}
+        </p>
+      </PxSpin>
+    </PxCard>
 
     <GrantLinkDialog v-model:visible="grantVisible" :document-id="props.id" />
     <SnapshotDialog v-model:visible="snapshotVisible" :document-id="props.id" />
@@ -241,30 +260,35 @@ async function handleRemove(): Promise<void> {
   margin: 0;
 }
 
-.document-detail__list {
+.document-detail__card-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--md-space-2);
-  margin: var(--md-space-4) 0 0;
-  font-size: var(--md-font-size-sm);
-  color: var(--md-color-text-secondary);
-}
-
-.document-detail__list-item {
-  padding-left: var(--md-space-4);
-  list-style: disc;
-}
-
-.document-detail__editor-placeholder {
-  display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: var(--md-space-3);
-  align-items: flex-start;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.document-detail__editor-hint {
+.document-detail__card-title {
   margin: 0;
+  font-size: var(--md-font-size-lg);
+}
+
+.document-detail__card-tools {
+  display: inline-flex;
+  gap: var(--md-space-2);
+  align-items: center;
+}
+
+.document-detail__content-error {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.document-detail__content-empty {
+  margin: 0;
+  padding: var(--md-space-6) 0;
   font-size: var(--md-font-size-sm);
   color: var(--md-color-text-secondary);
+  text-align: center;
 }
 </style>

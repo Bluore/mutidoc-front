@@ -27,6 +27,9 @@ export const DOCUMENT_SNAPSHOT_LINK_DAYS = 7
 /** 快照正文为空时的展示文案 */
 export const DOCUMENT_SNAPSHOT_EMPTY_TEXT = '该快照发布时正文为空。'
 
+/** 文档正文为空时的展示文案 */
+export const DOCUMENT_CONTENT_EMPTY_TEXT = '该文档正文为空，进入协作编辑开始写作。'
+
 /** 协作连接状态在界面上的展示文案与标签主题 */
 export const COLLABORATION_STATUS_META: Readonly<
   Record<

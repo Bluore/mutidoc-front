@@ -7,7 +7,7 @@
 ```
 modules/document/
 ├── api/
-│   ├── document.ts             # 列表 / 创建 / 删除 / 元信息
+│   ├── document.ts             # 列表 / 创建 / 删除 / 元信息 / 正文
 │   ├── collaboration.ts        # 协作编辑端点 URL 拼接
 │   └── mock.ts
 ├── components/
@@ -45,18 +45,31 @@ modules/document/
 | 创建文档 | POST | `/doc/v1/document` | 返回 `document_id` |
 | 删除文档 | DELETE | `/doc/v1/document` | body 传 `document_id`，仅归属者可删 |
 | 获取文档元信息 | GET | `/doc/v1/document/info` | 返回 `{ document_info }` |
+| 获取文档正文 | GET | `/doc/v1/document/content` | query 传 `document_id`，返回 `{ content, summary, version }` |
 | 生成授权链接 | GET | `/doc/v1/document/grant` | 返回 `{ link }`，仅归属者，重复调用复用同一链接 |
 | 发布文档快照 | POST | `/doc/v1/document/snapshot` | body 传 `document_id`，返回 `{ snapshot_id, short_link }`，仅归属者 |
 | 读取快照正文 | GET | `/doc/v1/document/snapshot/content` | query 传 `snapshot_id`，**无需登录** |
 | 协作编辑 | WS | `/edit/v1/document?document_id=` | 升级为 WebSocket，走 OT 协议 |
 
-> `Document` **不含正文**；正文只在 WebSocket 协作连接中下发。
+> `Document` **不含正文**：列表 / 元信息接口只返回标题与时间；正文由
+> `GET /doc/v1/document/content` 读取（详情页按 Markdown 渲染），协作编辑页则以
+> WebSocket `init` 下发的实时正文为准。
 
 ## 关键适配
 
 - 后端列表结构为 `documents_info` + `documents_len`，API 层统一适配为 `PageResult{ list, total, page, pageSize }`。
 - 文档没有「标题」字段，卡片用 `summary` 作为标题，为空时显示「未命名文档」。
 - 时间字段是秒级 Unix 时间戳，统一用 `formatUnixSeconds` 格式化。
+
+## 文档详情（`documents/:id`）
+
+`views/DocumentDetailView.vue` 同时请求元信息与正文，两者互不阻塞：
+
+- `GET /doc/v1/document/info` → 归属者、创建 / 更新时间；
+- `GET /doc/v1/document/content?document_id=...` → 正文、标题与版本号，用
+  `components/MarkdownText.vue`（markdown-it + DOMPurify）渲染为只读正文；
+- 正文请求失败只影响「文档正文」卡片，并就地提供「重新加载」；正文为空时展示占位文案；
+- 「刷新」会同时重新拉取元信息与正文，卡片操作区的「进入协作编辑」跳转 `documents/:id/edit`。
 
 ## 授权链接分享（GetGrantLink）
 
@@ -88,6 +101,8 @@ modules/document/
 该页由 `stores/snapshot.ts` 调用 `GET /doc/v1/document/snapshot/content?snapshot_id=...`
 拉取标题、正文、版本与发布时间，只做只读渲染：
 
+- 正文用 `components/MarkdownText.vue`（markdown-it + DOMPurify）按 Markdown 渲染，
+  保留发布时的标题、列表、代码块等格式；
 - 快照不存在（`code = 1024004`）是终态，展示「快照不存在」，不提供重试；
 - 其他错误（网络 / 服务端）展示错误信息与「重新加载」；
 - 正文为空时展示占位文案，不渲染空白区域。

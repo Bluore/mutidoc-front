@@ -6,13 +6,19 @@ import { getErrorMessage } from '@/utils/error'
 import {
   createDocument as createDocumentApi,
   deleteDocument as deleteDocumentApi,
+  fetchDocumentContent as fetchDocumentContentApi,
   fetchDocumentInfo as fetchDocumentInfoApi,
   fetchDocumentList,
   fetchGrantLink as fetchGrantLinkApi,
   publishDocumentSnapshot as publishDocumentSnapshotApi,
 } from '../api/document'
 import { DOCUMENT_PAGE_SIZE } from '../constants'
-import type { DocumentItem, DocumentSort, SnapshotPublishResult } from '../types'
+import type {
+  DocumentContent,
+  DocumentItem,
+  DocumentSort,
+  SnapshotPublishResult,
+} from '../types'
 
 /**
  * 文档 store：管理列表、分页、筛选与排序。
@@ -33,6 +39,10 @@ export const useDocumentStore = defineStore('document', () => {
   const detail = ref<DocumentItem | null>(null)
   const detailLoading = ref(false)
   const detailError = ref<string | null>(null)
+  /** 当前文档正文（GET /doc/v1/document/content）；未请求或失败时为 null */
+  const content = ref<DocumentContent | null>(null)
+  const contentLoading = ref(false)
+  const contentError = ref<string | null>(null)
   /** 当前生成/复用的授权链接；未请求或失败时为 null */
   const grantLink = ref<string | null>(null)
   const grantLinkLoading = ref(false)
@@ -124,6 +134,28 @@ export const useDocumentStore = defineStore('document', () => {
     }
   }
 
+  /** 正文请求序号：切换文档时丢弃上一次的迟到响应 */
+  let contentSequence = 0
+
+  /** 拉取文档正文；与元信息分开请求，正文失败不影响文档信息展示 */
+  async function loadContent(documentId: string): Promise<void> {
+    const sequence = ++contentSequence
+
+    contentLoading.value = true
+    contentError.value = null
+    content.value = null
+    try {
+      const result = await fetchDocumentContentApi(documentId)
+      if (sequence !== contentSequence) return
+      content.value = result
+    } catch (e) {
+      if (sequence !== contentSequence) return
+      contentError.value = getErrorMessage(e, '文档正文加载失败')
+    } finally {
+      if (sequence === contentSequence) contentLoading.value = false
+    }
+  }
+
   async function generateGrantLink(documentId: string): Promise<string> {
     grantLinkLoading.value = true
     grantLinkError.value = null
@@ -194,6 +226,9 @@ export const useDocumentStore = defineStore('document', () => {
     detail,
     detailLoading,
     detailError,
+    content,
+    contentLoading,
+    contentError,
     grantLink,
     grantLinkLoading,
     grantLinkError,
@@ -210,6 +245,7 @@ export const useDocumentStore = defineStore('document', () => {
     setKeyword,
     setSort,
     loadDetail,
+    loadContent,
     generateGrantLink,
     resetGrantLink,
     publishSnapshot,

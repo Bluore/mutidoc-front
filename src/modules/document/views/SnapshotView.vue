@@ -10,6 +10,7 @@ import { IconExclamationTriangle, IconRefresh } from '@pixelium/web-vue/icon-hn/
 import { computed, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import MarkdownText from '@/components/MarkdownText.vue'
 import { env } from '@/config/env'
 import { formatUnixSeconds } from '@/utils/date'
 
@@ -104,7 +105,9 @@ watch(
             </div>
           </dl>
 
-          <pre v-if="hasContent" class="snapshot-view__content">{{ detail.content }}</pre>
+          <div v-if="hasContent" class="snapshot-view__content">
+            <MarkdownText :source="detail.content" />
+          </div>
           <p v-else class="snapshot-view__empty">{{ DOCUMENT_SNAPSHOT_EMPTY_TEXT }}</p>
 
           <p class="snapshot-view__note">
@@ -265,14 +268,6 @@ watch(
 
 .snapshot-view__content {
   padding: var(--md-space-4);
-  margin: 0;
-  overflow-x: auto;
-  font-family: var(--md-font-mono);
-  font-size: var(--md-font-size-sm);
-  line-height: var(--md-line-height);
-  color: var(--md-color-text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
   background-color: var(--md-color-bg);
   border: 1px solid var(--md-color-border);
   border-radius: var(--md-radius-sm);
