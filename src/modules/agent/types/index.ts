@@ -67,6 +67,44 @@ export interface AgentMessageDelta {
 }
 
 /**
+ * 打断事件里由触发方（工具）提供的用户可见信息。
+ *
+ * 后端把它作为 JSON 对象原样下发（如 `create_document_connection`），字段随打断类型
+ * 变化，因此除常见字段外允许扩展；视图层只直接展示 `message`。
+ */
+export interface AgentInterruptInfo {
+  /** 打断类型，如 create_document_connection */
+  kind?: string
+  /** 给用户看的说明，通常是一句是否同意的询问 */
+  message?: string
+  /** 相关文档 ID（创建文档连接时提供） */
+  document_id?: string
+  /** 发起操作的机器人名称（创建文档连接时提供） */
+  bot_name?: string
+  /** 其它随打断类型变化的字段 */
+  [key: string]: unknown
+}
+
+/**
+ * 一次需要人工确认的打断（Human-in-the-Loop）。
+ *
+ * 服务端在等待反馈期间会把未处理的打断**重复**放在每个事件里下发，前端只保留最新的
+ * 一组；用户通过 feedback 接口同意 / 拒绝后，会话从该打断点继续执行。
+ */
+export interface AgentInterrupt {
+  /** 打断点唯一 ID（同一会话内用于去重 / 识别已处理项） */
+  id: string
+  /** 组件路径，如 agent:MuDo;tool:EditAgent:call_00_... */
+  address: string
+  /** 触发方提供的用户可见信息 */
+  info: AgentInterruptInfo
+  /** 是否为根因打断点（恢复时后端据此定位） */
+  isRootCause: boolean
+  /** 父打断点 ID（嵌套 agent 时存在） */
+  parentId: string
+}
+
+/**
  * SSE 每个 `data` 事件的数据体。
  *
  * `msg` 是**增量**（不是完整快照），需要按角色累积；心跳事件可能只有 `status`
@@ -74,12 +112,21 @@ export interface AgentMessageDelta {
  */
 export interface AgentStreamPayload {
   msg: AgentMessageDelta[]
+  /** 本轮需要人工确认的打断点；没有时为空数组（等待反馈期间会被重复下发） */
+  interrupt: AgentInterrupt[]
   /** 服务端运行状态，取值见 constants 中的 `AGENT_STREAM_STATUS_*` */
   status: number
 }
 
-/** Agent 侧栏的本地状态机 */
-export type AgentStatus = 'idle' | 'submitting' | 'streaming' | 'restoring' | 'done' | 'error'
+/** Agent 侧栏的本地状态机（`awaiting` = 等待用户确认敏感操作） */
+export type AgentStatus =
+  | 'idle'
+  | 'submitting'
+  | 'streaming'
+  | 'restoring'
+  | 'awaiting'
+  | 'done'
+  | 'error'
 
 /** 历史会话条目（GET /agent/v1/session/list） */
 export interface AgentSession {

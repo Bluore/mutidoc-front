@@ -1,6 +1,6 @@
 # Agent 模块（agent）
 
-协作编辑页的 Agent 助手：右下角悬浮按钮打开右侧浮层侧栏，向 Agent 提问，Agent 通过
+协作编辑页的 MuDo 智能助手：右下角悬浮按钮打开右侧浮层侧栏，向 MuDo 提问，MuDo 通过
 SSE 流式回复。侧栏固定在页面上、默认收起，不参与文档流、不挤占页面空间。
 模块只提供一个可复用的侧栏组件与配套 store，不占用独立路由。
 
@@ -9,15 +9,15 @@ SSE 流式回复。侧栏固定在页面上、默认收起，不参与文档流�
 ```
 modules/agent/
 ├── api/
-│   └── agent.ts            # 建会话 / 追问（REST）+ 事件流订阅（SSE）
+│   └── agent.ts            # 建会话 / 追问 / 人工确认（REST）+ 事件流订阅（SSE）
 ├── components/
 │   └── AgentSidebar.vue    # 右下角悬浮按钮 + 右侧浮层侧栏（对话 / 历史会话两个视图）
 ├── stores/
-│   └── agent.ts            # 会话编排（sessionId / messages / 状态机）
+│   └── agent.ts            # 会话编排（sessionId / messages / interrupts / 状态机）
 ├── merge.ts                # 流式增量合并（纯函数，可单测）
 ├── user-context.ts         # 用户消息 <context> 块的字符串截取（纯函数，可单测）
-├── types/index.ts          # AgentMessage / AgentMessageSegment / AgentMessageDelta / AgentToolCall / AgentStreamPayload / AgentStatus / AgentCondition
-├── constants.ts            # 状态文案、角色名、长度上限
+├── types/index.ts          # AgentMessage / AgentInterrupt / AgentStreamPayload / AgentStatus / AgentCondition
+├── constants.ts            # 状态文案、打断文案、角色名、长度上限
 └── index.ts                # 对外出口
 ```
 
@@ -31,6 +31,7 @@ modules/agent/
 | --- | --- | --- | --- |
 | 创建会话 | POST | `/agent/v1/session/create` | body `{ query, condition }`，返回 `{ session_id }` |
 | 追问 | POST | `/agent/v1/session/resume` | body `{ query, session_id, condition }`，返回空 data |
+| 人工确认 | POST | `/agent/v1/session/feedback` | body `{ session_id, approved, feedback }`，恢复被打断的会话 |
 | 历史会话列表 | GET | `/agent/v1/session/list` | 返回 `{ sessions: [{ session_id, session_title, user_id }], session_len }` |
 | 订阅事件流 | GET | `/agent/v1/session/stream/{id}` | `text/event-stream`，逐条下发消息增量 |
 
@@ -39,6 +40,30 @@ modules/agent/
 1. 首次提问 → `create` 拿到 `session_id`；之后每次提问 → `resume`。
 2. 提交成功后订阅 `stream/{session_id}`，持续接收事件直到出现终态（`status === 2`）。
 3. 请求携带与其余接口一致的凭证（`Authorization: Bearer <md_token>`）。
+4. 需要人工确认时事件带 `interrupt` 与 `status === 3`（见下文「人工确认」）；用户同意 /
+   拒绝后调用 `feedback`，会话从打断点继续，后续增量仍在**同一条 SSE 长连接**上推送。
+
+### 人工确认（Human-in-the-Loop）
+
+敏感操作（如创建文档编辑连接）执行前，后端会打断会话并下发：
+
+```
+data: {"interrupt":[{"id":"e9ceb920-…","address":"agent:MuDo;tool:EditAgent:…",
+                     "info":{"kind":"create_document_connection",
+                             "document_id":"0000017921306390020000",
+                             "bot_name":"EditAgent",
+                             "message":"智能助手需要建立对文档「…」的编辑连接…是否同意？"},
+                     "is_root_cause":true,"parent_id":"5db05265-…"}],
+       "status":3}
+```
+
+- `api/agent.ts` 把下划线字段适配为 `AgentInterrupt { id, address, info, isRootCause, parentId }`。
+- 等待反馈期间后端**每轮轮询都会重复携带**这组打断，store 以最新一组覆盖；提交成功后
+  记录已处理的 ID，用来过滤恢复瞬间可能再次出现的旧打断。
+- 确认卡片展示 `info.message`，并提供可选的补充意见；同意 / 拒绝分别调用
+  `submitFeedback(true/false, feedback)`。补充意见为空时发送空串（后端可选）。
+- 反馈提交成功后状态回到「回复中」，长连接保持；若等待期间连接已断开，store 会重新订阅
+  事件流以继续接收输出。恢复后若再次触发打断，会以新的 `interrupt.id` 再次展示卡片。
 
 ### 提问上下文（`condition`）
 
@@ -54,6 +79,13 @@ modules/agent/
   行为与旧版一致。
 - 上下文由宿主页面通过 `AgentSidebar` 的 `resolveCondition` 属性提供（每次提问即时
   求值），组件本身不感知文档 / 用户，保持可复用。
+
+### 用户身份展示
+
+- 用户消息不再显示泛称「我」，而是显示当前用户名：宿主页面通过 `AgentSidebar` 的
+  `selfName` 属性传入（如 `userStore.displayName`），缺省时回退到 `AGENT_ROLE_LABEL.user`。
+- 助手名称统一为 `MuDo`（`AGENT_ASSISTANT_NAME`）：角色名、侧栏标题、空态与思考文案都
+  由该常量派生。
 
 ### 查找与恢复历史
 
@@ -112,8 +144,11 @@ data: {"msg":[{"role":"user","content":"东软的天气"},
   对应调用（优先 `tool_call_id`，否则按序挂到第一个尚无结果的调用上），不再单独成气泡。
 - 没有 `msg`（或 `msg` 为空、且无 `tool_call`）的事件是心跳，忽略即可；含 `status === 2`
   的事件为终态。
+- `interrupt` 与 `status === 3` 表示等待人工确认（见上文「人工确认」），此时**不要**结束
+  订阅；确认后同一条流会继续推送。
 - 解析前做结构校验，格式非法的事件直接丢弃；`msg` 只保留 `role` / `content` / `reasoning`
-  / `tool_call_id`，`tool_call` 只保留 `id` / `name` / `arguments`。
+  / `tool_call_id`，`tool_call` 只保留 `id` / `name` / `arguments`，`interrupt` 只保留
+  `id` / `address` / `info` / `is_root_cause` / `parent_id`。
 - 浏览器原生 `EventSource` 无法设置请求头，故 `api/agent.ts` 改用
   `fetch` + `ReadableStream` 手动解析，既能注入鉴权，也能用 `AbortSignal` 取消订阅。
 - 收到终态后服务端可能仍保持连接（心跳），store 会主动 `abort()` 结束订阅，避免一直
@@ -122,7 +157,7 @@ data: {"msg":[{"role":"user","content":"东软的天气"},
 ## 数据流
 
 ```
-View ──调用──▶ Store(action: ask/stop/reset) ──▶ api/*.ts ──▶ REST + SSE ──▶ 后端
+View ──调用──▶ Store(action: ask/submitFeedback/stop/reset) ──▶ api/*.ts ──▶ REST + SSE ──▶ 后端
   ▲                                                    │
   └──────────────── 响应式 state（messages/status）◀────┘
 ```
@@ -154,6 +189,9 @@ View ──调用──▶ Store(action: ask/stop/reset) ──▶ api/*.ts ─�
   工具参数 / 结果（JSON）与「环境上下文」仍按原文等宽展示，不做 Markdown 解析。
 - 头部「历史会话」按钮切到列表视图（含加载 / 出错 / 空态），点选会话即恢复并切回对话；
   恢复期间状态标签显示「载入中」。
+- **人工确认卡片**：等待反馈时消息列表末尾出现确认卡片（状态标签「待确认」），展示打断
+  说明、可选补充意见与「同意 / 拒绝」按钮；提交中按钮显示 loading，输入框与会话切换
+  保持禁用。此状态下不提供「停止」，避免把服务端会话留在未处理打断上。
 - 生成中禁用输入与会话切换，可点「停止」结束本轮；`Esc` 或关闭按钮收起侧栏。
 
 ## 已知取舍
@@ -164,6 +202,8 @@ View ──调用──▶ Store(action: ask/stop/reset) ──▶ api/*.ts ─�
   `stores/agent.ts` 里的 `resetOnNextEvent` 逻辑。
 - 尚无 mock：`streamAgentSession` 依赖真实后端，`VITE_USE_MOCK=true` 时同样需要后端
   提供 Agent 服务（与协作编辑 WebSocket 的处理一致）。
+- 打断点（待确认操作）只保存在服务端内存，服务端重启后无法恢复；前端不做本地持久化，
+  刷新页面或换设备后只能通过历史会话重新拉取，若打断已丢失则需重新发起提问。
 - 生产环境经 `deploy/nginx/default.conf` 暴露，已为 `/api/agent/` 单独关闭
   `proxy_buffering` 并放宽 `proxy_read_timeout`；否则 nginx 会缓冲 SSE，前端看不到
   逐条回复。若网关（`nginx-gateway`）本身也做缓冲，需在其侧一并关闭。

@@ -8,11 +8,13 @@ import {
   fetchAgentSessions,
   resumeAgentSession,
   streamAgentSession,
+  submitAgentFeedback,
 } from '../api/agent'
-import { AGENT_STREAM_STATUS_DONE } from '../constants'
+import { AGENT_STREAM_STATUS_DONE, AGENT_STREAM_STATUS_INTERRUPTED } from '../constants'
 import { mergeDelta } from '../merge'
 import type {
   AgentCondition,
+  AgentInterrupt,
   AgentMessage,
   AgentMessageDelta,
   AgentSession,
@@ -42,6 +44,11 @@ export const useAgentStore = defineStore('agent', () => {
   const status = ref<AgentStatus>('idle')
   const error = ref<string | null>(null)
 
+  /** 本轮等待人工确认的打断点（服务端会重复下发，只保留最新一组） */
+  const interrupts = ref<AgentInterrupt[]>([])
+  /** 是否正在提交人工确认结果 */
+  const feedbackSubmitting = ref(false)
+
   /** 历史会话列表 */
   const sessions = ref<AgentSession[]>([])
   const sessionsLoading = ref(false)
@@ -53,15 +60,26 @@ export const useAgentStore = defineStore('agent', () => {
   let controller: AbortController | null = null
   /** 本轮订阅开始后、收到第一条消息增量时是否先清空本地消息（事件流会回放整段历史） */
   let resetOnNextEvent = false
+  /**
+   * 已提交过反馈的打断点 ID。
+   *
+   * 提交反馈后后端状态立即变为「生成中」，但清空 interrupt 发生在恢复协程里，中间可能
+   * 还有一两个轮询事件带着旧打断；据此过滤，避免确认卡片短暂重现。
+   */
+  let dismissedInterruptIds = new Set<string>()
 
   // getters
   const busy = computed(
     () =>
       status.value === 'submitting' ||
       status.value === 'streaming' ||
-      status.value === 'restoring',
+      status.value === 'restoring' ||
+      status.value === 'awaiting' ||
+      interrupts.value.length > 0,
   )
   const restoring = computed(() => status.value === 'restoring')
+  /** 是否正在等待用户确认敏感操作（确认卡片据此展示） */
+  const awaiting = computed(() => interrupts.value.length > 0)
   const hasConversation = computed(
     () => messages.value.length > 0 || pendingQuery.value.length > 0,
   )
@@ -100,7 +118,7 @@ export const useAgentStore = defineStore('agent', () => {
     if (delta.role === 'user') pendingQuery.value = ''
   }
 
-  /** 应用一条 SSE 事件：逐条累积增量，收到终态则结束订阅。 */
+  /** 应用一条 SSE 事件：逐条累积增量，收到终态则结束订阅，收到打断则等待人工确认。 */
   function applyPayload(payload: AgentStreamPayload): void {
     // 事件流会重放整段历史，收到第一条消息时先清空本地旧对话再重建。
     if (resetOnNextEvent && payload.msg.length > 0) {
@@ -109,6 +127,17 @@ export const useAgentStore = defineStore('agent', () => {
     }
 
     for (const delta of payload.msg) applyDelta(delta)
+
+    // 打断：仅 status === 3 表示「等待人工确认」。等待反馈期间服务端会把同一组打断
+    // 重复下发，直接覆盖为最新一组；已提交反馈的旧打断（id 命中）再过滤一层，避免
+    // 恢复瞬间（状态已变回生成中）卡片闪现。
+    if (payload.status === AGENT_STREAM_STATUS_INTERRUPTED) {
+      const pending = payload.interrupt.filter((item) => !dismissedInterruptIds.has(item.id))
+      if (pending.length > 0) {
+        interrupts.value = pending
+        status.value = 'awaiting'
+      }
+    }
 
     // 终态后服务端可能仍挂着心跳，主动结束订阅，避免一直停留在「回复中」。
     if (payload.status === AGENT_STREAM_STATUS_DONE) abortStream()
@@ -142,7 +171,9 @@ export const useAgentStore = defineStore('agent', () => {
         },
       })
       if (current !== sessionSeq) return
-      status.value = 'done'
+      // 等待人工确认时连接可能已断开（例如代理超时），保持「待确认」而不是误报完成；
+      // 提交反馈后若发现连接已断，会重新订阅事件流。
+      if (status.value !== 'awaiting') status.value = 'done'
     } catch (e) {
       if (current !== sessionSeq) return
       error.value = getErrorMessage(e, 'Agent 请求失败，请稍后重试')
@@ -166,6 +197,9 @@ export const useAgentStore = defineStore('agent', () => {
 
     error.value = null
     pendingQuery.value = query
+    // 新的一轮提问开始，清掉上一轮残留的打断与已处理标记
+    interrupts.value = []
+    dismissedInterruptIds = new Set<string>()
 
     // 取消可能残留的订阅，并开启新的会话轮次
     const current = (sessionSeq += 1)
@@ -187,6 +221,42 @@ export const useAgentStore = defineStore('agent', () => {
     if (current !== sessionSeq) return
 
     await runStream(current, 'streaming', true)
+  }
+
+  /**
+   * 提交人工确认结果（Human-in-the-Loop）。
+   *
+   * 同意 / 拒绝都会让服务端从打断点继续执行；`feedback` 是给模型的补充意见，可为空。
+   * 成功后清掉确认卡片并回到「回复中」——服务端仍在同一条事件流上推送后续增量，
+   * 只有流已经断开时才需要重新订阅（重新订阅会回放整段历史，故复用 runStream 的重建逻辑）。
+   */
+  async function submitFeedback(approved: boolean, feedback = ''): Promise<void> {
+    const id = sessionId.value
+    if (!id || interrupts.value.length === 0 || feedbackSubmitting.value) return
+
+    const current = sessionSeq
+    const dismissed = interrupts.value.map((item) => item.id)
+    error.value = null
+    feedbackSubmitting.value = true
+
+    try {
+      await submitAgentFeedback(id, approved, feedback.trim())
+    } catch (e) {
+      if (current !== sessionSeq) return
+      error.value = getErrorMessage(e, '提交确认失败，请稍后重试')
+      return
+    } finally {
+      if (current === sessionSeq) feedbackSubmitting.value = false
+    }
+    if (current !== sessionSeq) return
+
+    // 记录已处理的打断，过滤恢复瞬间可能重复下发的旧 interrupt。
+    for (const interruptId of dismissed) dismissedInterruptIds.add(interruptId)
+    interrupts.value = []
+    status.value = 'streaming'
+
+    // 等待确认期间长连接可能已断开：重新订阅以继续接收后续输出。
+    if (!controller) await runStream(current, 'streaming', true)
   }
 
   /** 历史会话列表：GET /agent/v1/session/list。 */
@@ -214,6 +284,8 @@ export const useAgentStore = defineStore('agent', () => {
     error.value = null
     pendingQuery.value = ''
     messages.value = []
+    interrupts.value = []
+    dismissedInterruptIds = new Set<string>()
     sessionId.value = id
 
     const current = (sessionSeq += 1)
@@ -226,6 +298,8 @@ export const useAgentStore = defineStore('agent', () => {
     if (!busy.value) return
     sessionSeq += 1
     abortStream()
+    interrupts.value = []
+    feedbackSubmitting.value = false
     status.value = 'done'
   }
 
@@ -236,6 +310,9 @@ export const useAgentStore = defineStore('agent', () => {
     sessionId.value = null
     messages.value = []
     pendingQuery.value = ''
+    interrupts.value = []
+    feedbackSubmitting.value = false
+    dismissedInterruptIds = new Set<string>()
     status.value = 'idle'
     error.value = null
   }
@@ -247,16 +324,20 @@ export const useAgentStore = defineStore('agent', () => {
     pendingQuery,
     status,
     error,
+    interrupts,
+    feedbackSubmitting,
     sessions,
     sessionsLoading,
     sessionsError,
     // getters
     busy,
     restoring,
+    awaiting,
     thinking,
     hasConversation,
     // actions
     ask,
+    submitFeedback,
     restore,
     loadSessions,
     stop,

@@ -6,6 +6,8 @@ export { default as AgentSidebar } from './components/AgentSidebar.vue'
 export { useAgentStore } from './stores/agent'
 export type {
   AgentCondition,
+  AgentInterrupt,
+  AgentInterruptInfo,
   AgentMessage,
   AgentMessageDelta,
   AgentMessageSegment,
@@ -15,4 +17,8 @@ export type {
   AgentStreamPayload,
   AgentToolCall,
 } from './types'
-export { AGENT_STATUS_META, AGENT_STREAM_STATUS_DONE } from './constants'
+export {
+  AGENT_STATUS_META,
+  AGENT_STREAM_STATUS_DONE,
+  AGENT_STREAM_STATUS_INTERRUPTED,
+} from './constants'

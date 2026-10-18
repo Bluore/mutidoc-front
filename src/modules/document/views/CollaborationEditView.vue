@@ -156,7 +156,10 @@ function handleExit(): void {
       />
     </div>
 
-    <AgentSidebar :resolve-condition="resolveAgentCondition" />
+    <AgentSidebar
+      :self-name="userStore.displayName"
+      :resolve-condition="resolveAgentCondition"
+    />
   </section>
 </template>
 

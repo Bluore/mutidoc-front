@@ -22,30 +22,42 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import MarkdownText from '@/components/MarkdownText.vue'
 
 import {
+  AGENT_APPROVE_LABEL,
   AGENT_CONTEXT_LABEL,
   AGENT_EMPTY_HINT,
+  AGENT_FEEDBACK_MAX_LENGTH,
+  AGENT_FEEDBACK_PLACEHOLDER,
   AGENT_HISTORY_EMPTY,
   AGENT_HISTORY_LABEL,
   AGENT_HISTORY_LOADING_HINT,
+  AGENT_INTERRUPT_FALLBACK,
+  AGENT_INTERRUPT_LABEL,
   AGENT_PANEL_TITLE,
   AGENT_QUERY_MAX_LENGTH,
   AGENT_REASONING_LABEL,
+  AGENT_REJECT_LABEL,
   AGENT_RESET_LABEL,
   AGENT_RESTORING_HINT,
   AGENT_ROLE_LABEL,
   AGENT_SESSION_TITLE_FALLBACK,
   AGENT_STATUS_META,
-  AGENT_THINKING_HINT,
+  AGENT_THINKING_HINTS,
   AGENT_TOOL_ARGS_LABEL,
   AGENT_TOOL_CALLS_LABEL,
   AGENT_TOOL_RESULT_LABEL,
 } from '../constants'
 import { useAgentStore } from '../stores/agent'
-import type { AgentCondition, AgentMessage, AgentMessageSegment, AgentSession } from '../types'
+import type {
+  AgentCondition,
+  AgentInterrupt,
+  AgentMessage,
+  AgentMessageSegment,
+  AgentSession,
+} from '../types'
 import { splitUserContext } from '../user-context'
 
 /**
- * Agent 助手：右下角悬浮按钮 + 右侧浮层侧栏。
+ * MuDo 智能助手：右下角悬浮按钮 + 右侧浮层侧栏。
  *
  * 侧栏以 `position: fixed` 浮在页面上（Teleport 到 body），**不参与文档流、不挤占
  * 页面空间**；默认收起，由右下角悬浮按钮打开。组件只负责展示与交互，会话编排都在
@@ -59,9 +71,19 @@ const props = defineProps<{
    * 组件本身不感知文档 / 用户，从而保持可复用；缺省时不携带上下文（等价于 `{}`）。
    */
   resolveCondition?: () => AgentCondition
+  /**
+   * 当前用户的展示名：用户消息用它代替泛称「我」，缺省时回退到 `AGENT_ROLE_LABEL.user`。
+   * 由宿主页面传入（组件不直接依赖用户 store，保持可复用）。
+   */
+  selfName?: string
 }>()
 
 const agent = useAgentStore()
+
+/** 用户消息的角色名：优先当前用户名 */
+const userLabel = computed(() => props.selfName?.trim() || AGENT_ROLE_LABEL.user)
+/** 用户头像占位：取用户名首字符（与用户模块头像占位规则一致） */
+const userInitial = computed(() => userLabel.value.slice(0, 1).toUpperCase() || '?')
 
 /** 侧栏展开状态（本地 UI 状态，不进 store） */
 const open = ref(false)
@@ -72,7 +94,14 @@ const view = ref<'chat' | 'history'>('chat')
 
 /** 输入草稿 */
 const draft = ref('')
+/** 人工确认的补充意见草稿 */
+const feedbackDraft = ref('')
+/** 本次点击的确认按钮：用于只让被点击的那个按钮显示 loading */
+const feedbackDecision = ref<boolean | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
+
+/** 等待回复时的随机文案：每次进入思考态时重新挑一条 */
+const thinkingHint = ref(AGENT_THINKING_HINTS[0])
 
 const statusMeta = computed(() => AGENT_STATUS_META[agent.status])
 const canSend = computed(() => draft.value.trim().length > 0 && !agent.busy)
@@ -91,10 +120,11 @@ const scrollSignal = computed(() => {
     : 0
   return `${agent.messages.length}:${agent.pendingQuery.length}:${agent.thinking ? 1 : 0}:${
     last?.segments.length ?? 0
-  }:${tailLength}`
+  }:${tailLength}:${agent.interrupts.length}`
 })
 
 function roleLabel(message: AgentMessage): string {
+  if (message.role === 'user') return userLabel.value
   return AGENT_ROLE_LABEL[message.role] ?? message.role
 }
 
@@ -149,14 +179,31 @@ function formatToolPayload(raw: string): string {
   }
 }
 
-/** 正在输出正文的助手气泡：显示打字动画（思考 / 工具调用阶段也复用） */
+/** 正在输出正文的助手气泡：显示打字动画（思考 / 工具调用阶段也复用；待确认时停下） */
 function isAnswering(message: AgentMessage, index: number): boolean {
   return (
     agent.busy &&
+    !agent.awaiting &&
     message.role === 'assistant' &&
     !messageContent(message) &&
     index === agent.messages.length - 1
   )
+}
+
+/** 打断卡片文案：优先使用触发方给的 message，缺失时用通用询问。 */
+function interruptMessage(interrupt: AgentInterrupt): string {
+  return interrupt.info.message?.trim() || AGENT_INTERRUPT_FALLBACK
+}
+
+/** 同意 / 拒绝当前待确认操作，并附带可选的补充意见。 */
+async function respondInterrupt(approved: boolean): Promise<void> {
+  if (agent.feedbackSubmitting) return
+  feedbackDecision.value = approved
+  try {
+    await agent.submitFeedback(approved, feedbackDraft.value)
+  } finally {
+    feedbackDecision.value = null
+  }
 }
 
 async function scrollToBottom(): Promise<void> {
@@ -231,6 +278,25 @@ watch(scrollSignal, () => {
   void scrollToBottom()
 })
 
+/** 待确认项变化（新的打断 / 已处理）时清空补充意见草稿 */
+watch(
+  () => agent.interrupts.map((item) => item.id).join(','),
+  () => {
+    feedbackDraft.value = ''
+    feedbackDecision.value = null
+  },
+)
+
+/** 每次进入「等待回复」时换一条随机文案，让等待过程更有趣 */
+watch(
+  () => agent.thinking,
+  (thinking) => {
+    if (!thinking) return
+    thinkingHint.value =
+      AGENT_THINKING_HINTS[Math.floor(Math.random() * AGENT_THINKING_HINTS.length)]
+  },
+)
+
 onMounted(() => {
   window.addEventListener('keydown', handleWindowKeydown)
 })
@@ -251,7 +317,7 @@ onBeforeUnmount(() => {
       size="large"
       theme="primary"
       native-type="button"
-      aria-label="打开 Agent 助手"
+      :aria-label="`打开 ${AGENT_PANEL_TITLE}`"
       @click="toggle"
     >
       <template #icon>
@@ -264,7 +330,7 @@ onBeforeUnmount(() => {
         v-if="open"
         class="agent-panel"
         :class="{ 'agent-panel--full': fullscreen }"
-        aria-label="Agent 助手侧栏"
+        :aria-label="`${AGENT_PANEL_TITLE}侧栏`"
       >
         <header class="agent-panel__header">
           <PxButton
@@ -341,7 +407,7 @@ onBeforeUnmount(() => {
               variant="text"
               size="small"
               native-type="button"
-              aria-label="关闭 Agent 助手"
+              :aria-label="`关闭 ${AGENT_PANEL_TITLE}`"
               @click="toggle"
             >
               <template #icon>
@@ -361,7 +427,7 @@ onBeforeUnmount(() => {
             aria-label="对话记录"
           >
             <p
-              v-if="!agent.hasConversation && !agent.thinking && !agent.restoring"
+              v-if="!agent.hasConversation && !agent.thinking && !agent.restoring && !agent.awaiting"
               class="agent-panel__empty"
             >
               <IconSparkles class="agent-panel__empty-icon" />
@@ -375,7 +441,8 @@ onBeforeUnmount(() => {
               :class="{ 'agent-panel__message--user': item.user }"
             >
               <PxAvatar class="agent-panel__avatar" size="small" shape="circle" bordered>
-                {{ item.user ? '我' : 'AI' }}
+                <template v-if="item.user">{{ userInitial }}</template>
+                <IconRobot v-else />
               </PxAvatar>
               <div class="agent-panel__bubble">
                 <span class="agent-panel__role">{{ roleLabel(item.message) }}</span>
@@ -454,17 +521,71 @@ onBeforeUnmount(() => {
               class="agent-panel__message agent-panel__message--user"
             >
               <PxAvatar class="agent-panel__avatar" size="small" shape="circle" bordered>
-                我
+                {{ userInitial }}
               </PxAvatar>
               <div class="agent-panel__bubble">
-                <span class="agent-panel__role">我</span>
+                <span class="agent-panel__role">{{ userLabel }}</span>
                 <MarkdownText class="agent-panel__content" :source="agent.pendingQuery" />
+              </div>
+            </div>
+
+            <!-- 人工确认（Human-in-the-Loop）：同意 / 拒绝后会话从打断点继续 -->
+            <div
+              v-if="agent.awaiting"
+              class="agent-panel__message agent-panel__message--interrupt"
+            >
+              <PxAvatar class="agent-panel__avatar" size="small" shape="circle" bordered>
+                <IconRobot />
+              </PxAvatar>
+              <div class="agent-panel__bubble agent-panel__bubble--interrupt">
+                <span class="agent-panel__role">{{ AGENT_INTERRUPT_LABEL }}</span>
+                <p
+                  v-for="interrupt in agent.interrupts"
+                  :key="interrupt.id"
+                  class="agent-panel__interrupt-text"
+                >
+                  {{ interruptMessage(interrupt) }}
+                </p>
+
+                <div class="agent-panel__interrupt-feedback">
+                  <PxTextarea
+                    v-model="feedbackDraft"
+                    :rows="2"
+                    :max-length="AGENT_FEEDBACK_MAX_LENGTH"
+                    :show-count="true"
+                    :disabled="agent.feedbackSubmitting"
+                    :placeholder="AGENT_FEEDBACK_PLACEHOLDER"
+                  />
+                </div>
+
+                <div class="agent-panel__interrupt-actions">
+                  <PxButton
+                    theme="danger"
+                    variant="outline"
+                    size="small"
+                    native-type="button"
+                    :disabled="agent.feedbackSubmitting"
+                    :loading="agent.feedbackSubmitting && feedbackDecision === false"
+                    @click="respondInterrupt(false)"
+                  >
+                    {{ AGENT_REJECT_LABEL }}
+                  </PxButton>
+                  <PxButton
+                    size="small"
+                    native-type="button"
+                    :disabled="agent.feedbackSubmitting"
+                    :loading="agent.feedbackSubmitting && feedbackDecision === true"
+                    @click="respondInterrupt(true)"
+                  >
+                    {{ AGENT_APPROVE_LABEL }}
+                  </PxButton>
+                </div>
               </div>
             </div>
 
             <div v-if="agent.thinking" class="agent-panel__message">
               <PxAvatar class="agent-panel__avatar" size="small" shape="circle" bordered>
-                AI
+                <IconRobot />
               </PxAvatar>
               <div class="agent-panel__bubble agent-panel__bubble--thinking">
                 <span class="agent-panel__dots" aria-hidden="true">
@@ -472,7 +593,7 @@ onBeforeUnmount(() => {
                   <i class="agent-panel__dot" />
                   <i class="agent-panel__dot" />
                 </span>
-                {{ AGENT_THINKING_HINT }}
+                {{ thinkingHint }}
               </div>
             </div>
 
@@ -512,7 +633,7 @@ onBeforeUnmount(() => {
               </PxButton>
 
               <PxButton
-                v-if="agent.busy"
+                v-if="agent.busy && !agent.awaiting"
                 class="agent-panel__action"
                 theme="warning"
                 variant="outline"
@@ -698,7 +819,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
 }
 
-/* 自己发的消息靠右排布，与 Agent 的回复区分开 */
+/* 自己发的消息靠右排布，与 MuDo 的回复区分开 */
 .agent-panel__message--user {
   flex-direction: row-reverse;
 }
@@ -812,6 +933,31 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   vertical-align: top;
+}
+
+/* 人工确认卡片：沿用消息气泡布局，整宽展示说明、补充意见与操作按钮 */
+.agent-panel__message--interrupt .agent-panel__bubble {
+  flex: 1;
+  max-width: 100%;
+  border-color: var(--md-color-warning);
+}
+
+.agent-panel__interrupt-text {
+  margin: 0;
+  font-size: var(--md-font-size-sm);
+  line-height: var(--md-line-height);
+  overflow-wrap: anywhere;
+}
+
+.agent-panel__interrupt-feedback {
+  margin-top: var(--md-space-1);
+}
+
+.agent-panel__interrupt-actions {
+  display: flex;
+  gap: var(--md-space-2);
+  justify-content: flex-end;
+  margin-top: var(--md-space-1);
 }
 
 .agent-panel__bubble--thinking {

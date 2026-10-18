@@ -4,6 +4,8 @@ import { createSseParser } from '@/utils/sse'
 
 import type {
   AgentCondition,
+  AgentInterrupt,
+  AgentInterruptInfo,
   AgentMessageDelta,
   AgentSession,
   AgentStreamPayload,
@@ -52,6 +54,25 @@ export function resumeAgentSession(
     url: '/agent/v1/session/resume',
     method: 'post',
     data: { query, session_id: sessionId, condition: JSON.stringify(condition ?? {}) },
+  })
+}
+
+/**
+ * 提交人工确认结果：POST /agent/v1/session/feedback
+ *
+ * 会话因敏感操作被打断（SSE `status === 3`）时调用。`approved` 表示同意 / 拒绝，
+ * `feedback` 是给模型的补充意见（可为空串）。成功后后端会从打断点继续执行，后续增量
+ * 仍由当前事件流推送，无需重新订阅。
+ */
+export function submitAgentFeedback(
+  sessionId: string,
+  approved: boolean,
+  feedback = '',
+): Promise<void> {
+  return request<void>({
+    url: '/agent/v1/session/feedback',
+    method: 'post',
+    data: { session_id: sessionId, approved, feedback },
   })
 }
 
@@ -131,6 +152,53 @@ function parseToolCalls(raw: unknown): AgentToolCall[] {
 }
 
 /**
+ * 解析顶层的 `interrupt` 帧：形如
+ * `[{"id":"..","address":"agent:..;tool:..","info":{"kind":"..","message":".."},"is_root_cause":true,"parent_id":".."}]`。
+ *
+ * 后端字段为下划线命名，这里适配为前端的 camelCase 结构；`info` 是随打断类型变化的
+ * JSON 对象（也可能是字符串形式的 JSON），无法解析时退化为空对象，保证打断本身不丢。
+ */
+function parseInterrupts(raw: unknown): AgentInterrupt[] {
+  if (!Array.isArray(raw)) return []
+
+  const list: AgentInterrupt[] = []
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) continue
+    const entry = item as {
+      id?: unknown
+      address?: unknown
+      info?: unknown
+      is_root_cause?: unknown
+      parent_id?: unknown
+    }
+    if (typeof entry.id !== 'string' || !entry.id) continue
+
+    let info: AgentInterruptInfo = {}
+    if (typeof entry.info === 'string') {
+      try {
+        const decoded: unknown = JSON.parse(entry.info)
+        if (typeof decoded === 'object' && decoded !== null) {
+          info = decoded as AgentInterruptInfo
+        }
+      } catch {
+        info = {}
+      }
+    } else if (typeof entry.info === 'object' && entry.info !== null) {
+      info = entry.info as AgentInterruptInfo
+    }
+
+    list.push({
+      id: entry.id,
+      address: typeof entry.address === 'string' ? entry.address : '',
+      info,
+      isRootCause: entry.is_root_cause === true,
+      parentId: typeof entry.parent_id === 'string' ? entry.parent_id : '',
+    })
+  }
+  return list
+}
+
+/**
  * 把一条 SSE `data` 解析为业务载荷；格式不合法或为空时返回 `null`（忽略该事件）。
  * 只保留 role / content / reasoning 与工具调用，避免把后端附带的额外字段泄漏到视图层。
  *
@@ -154,7 +222,12 @@ function parsePayload(raw: string): AgentStreamPayload | null {
   }
   if (typeof value !== 'object' || value === null) return null
 
-  const record = value as { msg?: unknown; tool_call?: unknown; status?: unknown }
+  const record = value as {
+    msg?: unknown
+    tool_call?: unknown
+    interrupt?: unknown
+    status?: unknown
+  }
   const msg: AgentMessageDelta[] = []
 
   // 待配对的工具调用（按发生顺序）；实时流里它们单独成帧，历史回放里与整段消息同帧。
@@ -192,7 +265,11 @@ function parsePayload(raw: string): AgentStreamPayload | null {
     msg.push({ role: 'assistant', toolCalls: [pendingTools[toolCursor]] })
   }
 
-  return { msg, status: typeof record.status === 'number' ? record.status : 0 }
+  return {
+    msg,
+    interrupt: parseInterrupts(record.interrupt),
+    status: typeof record.status === 'number' ? record.status : 0,
+  }
 }
 
 /**
