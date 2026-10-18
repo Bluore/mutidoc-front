@@ -16,6 +16,12 @@ const router = useRouter()
 
 const isLogin = computed(() => props.mode === 'login')
 
+/** 保留来源地址（如授权中间页），切换登录 / 注册后仍能回到原页面 */
+const redirectQuery = computed(() => {
+  const redirect = route.query.redirect
+  return typeof redirect === 'string' && redirect ? { redirect } : {}
+})
+
 function handleSuccess(): void {
   const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
   router.replace(redirect || { name: 'home' })
@@ -33,14 +39,14 @@ function handleSuccess(): void {
             <RouterLink
               class="auth-view__switch-item"
               :class="{ 'is-active': isLogin }"
-              :to="{ name: 'auth-login' }"
+              :to="{ name: 'auth-login', query: redirectQuery }"
             >
               登录
             </RouterLink>
             <RouterLink
               class="auth-view__switch-item"
               :class="{ 'is-active': !isLogin }"
-              :to="{ name: 'auth-register' }"
+              :to="{ name: 'auth-register', query: redirectQuery }"
             >
               注册
             </RouterLink>
@@ -61,7 +67,7 @@ function handleSuccess(): void {
             </span>
             <RouterLink
               class="auth-view__footer-link"
-              :to="{ name: isLogin ? 'auth-register' : 'auth-login' }"
+              :to="{ name: isLogin ? 'auth-register' : 'auth-login', query: redirectQuery }"
             >
               {{ isLogin ? '立即注册' : '返回登录' }}
             </RouterLink>

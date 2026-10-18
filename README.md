@@ -18,6 +18,7 @@ Vite + Vue 3 + TypeScript 的模块化前端基座。
 | --- | --- | --- |
 | `auth` | `/login`、`/register` | 注册 / 登录 / 邮箱验证码，落地 `md_token` |
 | `document` | `/documents`、`/documents/:id` | 工作台（文档列表 / 新建 / 删除）与文档详情 |
+| `link` | `/grant/:grantId` | 授权链接中间页（换取文档地址并跳转） |
 | `user` | `/profile` | 个人中心（查看信息、修改昵称 / 头像） |
 | `example` | `/examples` | 参考模板，新模块请复制它 |
 
@@ -45,6 +46,7 @@ src/
 ├── modules/          # ★ 业务模块（新增功能的主要场所）
 │   ├── auth/         #   注册 / 登录 / 验证码
 │   ├── document/     #   工作台（文档列表）与文档详情
+│   ├── link/         #   授权链接中间页 /grant/:grantId
 │   ├── user/         #   个人中心
 │   └── example/      #   示例/参考模块，详见其 README
 ├── router/           # 路由实例 + 模块路由自动收集

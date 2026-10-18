@@ -62,7 +62,9 @@ modules/document/
 - 仅文档归属者可调用；同一 `(document_id, 归属者)` 重复调用会**复用同一条链接**，
   服务端不校验旧链接是否已过期，失效链接由被授权用户打开时的 link 服务判定。
 - 链接形如 `<BaseUrl>/grant/<grantId>`，默认有效期 7 天；本接口**不代替归属者授权**，
-  真正的权限授予发生在被授权用户登录后打开链接时（link 服务 302 跳转到 `documents/:id/edit`）。
+  真正的权限授予发生在被授权用户登录后打开链接时：先进入前端授权中间页
+  （`modules/link` 的 `/grant/:grantId`），由它调用 link-api 换取文档地址并跳转到
+  `documents/:id/edit`。
 - 复制能力封装在 `src/utils/clipboard.ts`（安全上下文用 Clipboard API，否则退回
   `execCommand`）。
 
